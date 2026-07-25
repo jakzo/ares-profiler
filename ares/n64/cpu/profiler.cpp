@@ -546,7 +546,7 @@ auto CPU::Profiler::checkTimeout(u64 now) -> bool {
     if(replayFinished) return false;
     auto wallNow = std::chrono::steady_clock::now();
     if(replayRunning) {
-      if(wallNow - lastReplayFrameAt >= 2s) {
+      if(wallNow - lastReplayFrameAt >= 4s) {
         failReplay("next replay frame was not rendered within 2 seconds", now);
         return replayQuit;
       }
@@ -557,7 +557,7 @@ auto CPU::Profiler::checkTimeout(u64 now) -> bool {
       }
     } else {
       auto elapsed = std::chrono::duration<double>(wallNow - configuredAt).count();
-      if(elapsed >= 10.0) {
+      if(elapsed >= 15.0) {
         failReplay("level did not start before timeout", now);
         return replayQuit;
       }

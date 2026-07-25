@@ -65,6 +65,9 @@ jobs:
       with:
         fetch-tags: true
         fetch-depth: 0
+    - name: Fetch upstream version tags
+      if: inputs.official
+      run: git fetch --force --no-recurse-submodules https://github.com/ares-emulator/ares.git 'refs/tags/v*:refs/tags/v*'
     - name: Setup MSYS2 Git Environment
       if: matrix.platform.shell == 'msys2 {0}'
       run: |
