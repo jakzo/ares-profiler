@@ -11,6 +11,12 @@ auto readBigEndian32(const std::vector<u8>& data, size_t offset) -> u32 {
        | u32(data[offset + 2]) << 8 | u32(data[offset + 3]);
 }
 
+auto readBigEndian64(const std::vector<u8>& data, size_t offset) -> u64 {
+  if(offset + 8 > data.size()) return 0;
+  return u64(readBigEndian32(data, offset)) << 32
+       | u64(readBigEndian32(data, offset + 4));
+}
+
 auto symbolName(const std::vector<u8>& data, size_t offset, size_t limit) -> std::string {
   std::string result;
   while(offset < limit && offset < data.size() && data[offset]) {
@@ -28,8 +34,19 @@ auto CPU::Profiler::power(bool) -> void {
   pendingLevelStart = false;
   replayActive = false;
   replayRequested = false;
+  externalReplay = false;
+  replayRunning = false;
+  replayFinished = false;
+  replayQuit = false;
+  replayHasFrameSeeds = false;
+  replayFrameIndex = 0;
+  replayInitialRandomSeed = 0;
+  replayInitialChrObjRandomSeed = 0;
   gameFrameActive = false;
   functions.clear();
+  replayHooks.clear();
+  objects.clear();
+  replayFrames.clear();
   functionStarts.clear();
   functionCache.clear();
   stageLoadFunction = NoFunction;
@@ -39,6 +56,21 @@ auto CPU::Profiler::power(bool) -> void {
   masterDisplayListFunction = NoFunction;
   debugMenuDrawFunction = NoFunction;
   softwareTlbLoadFunction = NoFunction;
+  bossMainloopFunction = NoFunction;
+  updateFrameCountersFunction = NoFunction;
+  joyConsumeSamplesFunction = NoFunction;
+  getControlTypeFunction = NoFunction;
+  setSelectedDifficultyFunction = NoFunction;
+  lvlSetSelectedDifficultyFunction = NoFunction;
+  setControlTypeFunction = NoFunction;
+  setInvertLookFunction = NoFunction;
+  setAutoAimFunction = NoFunction;
+  setAimControlFunction = NoFunction;
+  setSightFunction = NoFunction;
+  setLookAheadFunction = NoFunction;
+  setAmmoFunction = NoFunction;
+  setScreenFunction = NoFunction;
+  setRatioFunction = NoFunction;
 
   auto symbols = std::getenv("ARES_N64_PROFILE_SYMBOLS");
   if(!symbols || !*symbols) return;
@@ -47,13 +79,21 @@ auto CPU::Profiler::power(bool) -> void {
   auto output = std::getenv("ARES_N64_PROFILE_OUTPUT");
   outputPrefix = output && *output ? output : "ares-n64-profile";
   auto replay = std::getenv("ARES_N64_PROFILE_REPLAY");
-  replayRequested = replay && *replay && std::string_view(replay) != "0";
+  auto externalReplayPath = std::getenv("ARES_N64_REPLAY");
+  externalReplay = externalReplayPath && *externalReplayPath;
+  if(externalReplay) replayPath = externalReplayPath;
+  replayRequested = externalReplay ||
+    (replay && *replay && std::string_view(replay) != "0");
+  auto quit = std::getenv("ARES_N64_REPLAY_QUIT");
+  replayQuit = quit && *quit && std::string_view(quit) != "0";
 
   if(!loadSymbols(symbolsPath)) {
     std::fprintf(stderr, "ares N64 profiler: could not load ELF symbols from %s\n", symbolsPath.c_str());
     return;
   }
 
+  replayHooks.resize(functions.size(), ReplayHook::None);
+  size_t optionGetterCount = 0;
   for(size_t index = 0; index < functions.size(); index++) {
     if(functions[index].name == "lvlStageLoad") stageLoadFunction = index;
     if(functions[index].name == "lvlUnloadStageTextData") stageUnloadFunction = index;
@@ -62,10 +102,106 @@ auto CPU::Profiler::power(bool) -> void {
     if(functions[index].name == "dynGetMasterDisplayList") masterDisplayListFunction = index;
     if(functions[index].name == "debmenuDraw") debugMenuDrawFunction = index;
     if(functions[index].name == "tlbmanageTranslateLoadRomFromTlbAddress") softwareTlbLoadFunction = index;
+    if(functions[index].name == "bossMainloop") bossMainloopFunction = index;
+    if(functions[index].name == "updateFrameCounters") updateFrameCountersFunction = index;
+    if(functions[index].name == "joyConsumeSamplesWrapper") joyConsumeSamplesFunction = index;
+    if(functions[index].name == "cur_player_get_control_type") getControlTypeFunction = index;
+    if(functions[index].name == "get_cur_player_look_vertical_inverted") {
+      replayHooks[index] = ReplayHook::GetInvertLook;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "cur_player_get_autoaim") {
+      replayHooks[index] = ReplayHook::GetAutoAim;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "cur_player_get_aim_control") {
+      replayHooks[index] = ReplayHook::GetAimControl;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "cur_player_get_sight_onscreen_control") {
+      replayHooks[index] = ReplayHook::GetSight;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "cur_player_get_lookahead") {
+      replayHooks[index] = ReplayHook::GetLookAhead;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "cur_player_get_ammo_onscreen_setting") {
+      replayHooks[index] = ReplayHook::GetAmmo;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "cur_player_get_screen_setting") {
+      replayHooks[index] = ReplayHook::GetScreen;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "get_screen_ratio") {
+      replayHooks[index] = ReplayHook::GetRatio;
+      optionGetterCount++;
+    }
+    if(functions[index].name == "set_selected_difficulty") setSelectedDifficultyFunction = index;
+    if(functions[index].name == "lvlSetSelectedDifficulty") lvlSetSelectedDifficultyFunction = index;
+    if(functions[index].name == "cur_player_set_control_type") setControlTypeFunction = index;
+    if(functions[index].name == "set_cur_player_look_vertical_inverted") setInvertLookFunction = index;
+    if(functions[index].name == "cur_player_set_autoaim") setAutoAimFunction = index;
+    if(functions[index].name == "cur_player_set_aim_control") setAimControlFunction = index;
+    if(functions[index].name == "cur_player_set_sight_onscreen_control") setSightFunction = index;
+    if(functions[index].name == "cur_player_set_lookahead") setLookAheadFunction = index;
+    if(functions[index].name == "cur_player_set_ammo_onscreen_setting") setAmmoFunction = index;
+    if(functions[index].name == "cur_player_set_screen_setting") setScreenFunction = index;
+    if(functions[index].name == "set_screen_ratio") setRatioFunction = index;
   }
+
+  auto setReplayHook = [&](size_t function, ReplayHook hook) {
+    if(function != NoFunction) replayHooks[function] = hook;
+  };
+  setReplayHook(bossMainloopFunction, ReplayHook::BossMainloop);
+  setReplayHook(stageLoadFunction, ReplayHook::StageLoad);
+  setReplayHook(setSelectedDifficultyFunction, ReplayHook::Difficulty);
+  setReplayHook(lvlSetSelectedDifficultyFunction, ReplayHook::Difficulty);
+  setReplayHook(getControlTypeFunction, ReplayHook::GetControlType);
+  setReplayHook(setControlTypeFunction, ReplayHook::SetControlType);
+  setReplayHook(setInvertLookFunction, ReplayHook::SetInvertLook);
+  setReplayHook(setAutoAimFunction, ReplayHook::SetAutoAim);
+  setReplayHook(setAimControlFunction, ReplayHook::SetAimControl);
+  setReplayHook(setSightFunction, ReplayHook::SetSight);
+  setReplayHook(setLookAheadFunction, ReplayHook::SetLookAhead);
+  setReplayHook(setAmmoFunction, ReplayHook::SetAmmo);
+  setReplayHook(setScreenFunction, ReplayHook::SetScreen);
+  setReplayHook(setRatioFunction, ReplayHook::SetRatio);
+  setReplayHook(joyConsumeSamplesFunction, ReplayHook::JoyConsumeSamples);
+  setReplayHook(updateFrameCountersFunction, ReplayHook::UpdateFrameCounters);
   if(stageLoadFunction == NoFunction || stageUnloadFunction == NoFunction) {
     std::fprintf(stderr, "ares N64 profiler: ELF is missing lvlStageLoad or lvlUnloadStageTextData\n");
     return;
+  }
+
+  if(externalReplay) {
+    stageNumAddress = objectAddress("g_StageNum");
+    selectedDifficultyAddress = objectAddress("selected_difficulty");
+    levelDifficultyAddress = objectAddress("g_SelectedDifficulty");
+    currentPlayerAddress = objectAddress("g_CurrentPlayer");
+    contDataAddress = objectAddress("g_ContData");
+    randomSeedAddress = objectAddress("g_randomSeed");
+    chrObjRandomSeedAddress = objectAddress("g_chrObjRandomSeed");
+    if(bossMainloopFunction == NoFunction ||
+       masterDisplayListFunction == NoFunction ||
+       debugMenuDrawFunction == NoFunction ||
+       updateFrameCountersFunction == NoFunction ||
+       joyConsumeSamplesFunction == NoFunction ||
+       getControlTypeFunction == NoFunction ||
+       optionGetterCount != 8 ||
+       !stageNumAddress || !selectedDifficultyAddress ||
+       !levelDifficultyAddress || !currentPlayerAddress || !contDataAddress ||
+       !randomSeedAddress || !chrObjRandomSeedAddress) {
+      std::fprintf(stderr, "TEST_FAILED ELF is missing required GoldenEye replay symbols\n");
+      if(replayQuit) requestShutdown();
+      return;
+    }
+    if(!loadReplay(replayPath)) {
+      std::fprintf(stderr, "TEST_FAILED could not load replay from %s\n", replayPath.c_str());
+      if(replayQuit) requestShutdown();
+      return;
+    }
   }
 
   functionCache.resize(FunctionCacheSize);
@@ -113,10 +249,15 @@ auto CPU::Profiler::loadSymbols(const std::string& path) -> bool {
       auto address = readBigEndian32(data, symbol + 4);
       auto size = readBigEndian32(data, symbol + 8);
       auto info = data[symbol + 12];
-      if((info & 15) != 2 || !size || nameOffset >= stringsSize) continue;  //STT_FUNC
+      auto type = info & 15;
+      if((type != 1 && type != 2) || !size || nameOffset >= stringsSize) continue;
       auto name = symbolName(data, stringsOffset + nameOffset, stringsOffset + stringsSize);
       if(name.empty() || name[0] == '$' || name.rfind(".L", 0) == 0) continue;
-      functions.push_back({address, size, std::move(name)});
+      if(type == 1) {
+        objects.insert_or_assign(name, Object{address, size});
+      } else {
+        functions.push_back({address, size, std::move(name)});
+      }
     }
   }
 
@@ -132,6 +273,179 @@ auto CPU::Profiler::loadSymbols(const std::string& path) -> bool {
     functionStarts.try_emplace(functions[index].address, index);
   }
   return !functions.empty();
+}
+
+auto CPU::Profiler::objectAddress(const char* name) const -> u32 {
+  auto found = objects.find(name);
+  return found == objects.end() ? 0 : found->second.address;
+}
+
+auto CPU::Profiler::guestAddress(u32 address) -> u64 {
+  return u64(s64(s32(address)));
+}
+
+auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
+  static constexpr size_t SramOffset = 0x600;
+  static constexpr u32 ReplayMagic = 0x47455250;
+  static constexpr u16 ReplayVersion = 1;
+  static constexpr u8 FrameSeeds = 1;
+
+  std::ifstream input(path, std::ios::binary);
+  if(!input) return false;
+  std::vector<u8> data((std::istreambuf_iterator<char>(input)), {});
+  if(data.size() < SramOffset + 48) return false;
+  auto base = SramOffset;
+  if(readBigEndian32(data, base) != ReplayMagic ||
+     readBigEndian16(data, base + 4) != ReplayVersion) return false;
+
+  auto headerSize = readBigEndian16(data, base + 6);
+  auto totalSize = readBigEndian32(data, base + 8);
+  auto frameCount = readBigEndian32(data, base + 12);
+  replayStage = data[base + 17];
+  replayDifficulty = data[base + 18];
+  auto flags = data[base + 19];
+  replayHasFrameSeeds = flags & FrameSeeds;
+  replayInitialRandomSeed = readBigEndian64(data, base + 24);
+  replayInitialChrObjRandomSeed = readBigEndian64(data, base + 32);
+  replayDuration = readBigEndian32(data, base + 40);
+  if(headerSize < 48 || !frameCount || totalSize < headerSize ||
+     u64(base) + totalSize > data.size()) return false;
+
+  size_t position = base + headerSize;
+  auto limit = base + totalSize;
+  u16 options = 0;
+  replayFrames.reserve(frameCount);
+  while(replayFrames.size() < frameCount && position < limit) {
+    auto delta = data[position++];
+    if(delta == 0) {
+      if(position + 2 > limit) return false;
+      options = readBigEndian16(data, position);
+      position += 2;
+      continue;
+    }
+
+    ReplayFrameData frame;
+    frame.deltaFrames = delta;
+    frame.options = options;
+    if(replayHasFrameSeeds) {
+      if(position + 16 > limit) return false;
+      frame.randomSeed = readBigEndian64(data, position);
+      frame.chrObjRandomSeed = readBigEndian64(data, position + 8);
+      position += 16;
+    }
+    if(position + 4 > limit) return false;
+    frame.buttons = readBigEndian16(data, position);
+    frame.stickX = s8(data[position + 2]);
+    frame.stickY = s8(data[position + 3]);
+    position += 4;
+    replayFrames.push_back(frame);
+  }
+
+  if(replayFrames.size() != frameCount) return false;
+  std::fprintf(stderr,
+    "ares N64 replay: loaded %zu frames for stage %u from %s\n",
+    replayFrames.size(), replayStage, path.c_str());
+  return true;
+}
+
+auto CPU::Profiler::startReplay(u64 now) -> void {
+  if(!externalReplay || replayRunning || replayFinished) return;
+  replayRunning = true;
+  replayActive = true;
+  replayFrameIndex = 0;
+  auto& first = replayFrames.front();
+  lastReplayFrameAt = std::chrono::steady_clock::now();
+
+  // A clean single-player ROM may not call the control-type setter because
+  // no save profile was loaded. Apply the recorded scheme to the live player
+  // selected through its ELF symbol. These player field offsets are shared
+  // by the retail US, JP and EU layouts.
+  auto player = self.readDebug<Word>(guestAddress(currentPlayerAddress));
+  if(player) {
+    auto controlType = u32(first.options >> 8 & 7);
+    self.writeDebug<Word>(guestAddress(player + 0x2a58), controlType);
+    self.writeDebug<Word>(guestAddress(player + 0x2a5c), controlType);
+  }
+  std::fprintf(stderr, "REPLAY_STARTED frames=%zu duration=%u\n",
+               replayFrames.size(), replayDuration);
+}
+
+auto CPU::Profiler::failReplay(const std::string& reason, u64 now) -> void {
+  if(replayFinished) return;
+  replayRunning = false;
+  replayActive = false;
+  replayFinished = true;
+  std::fprintf(stderr, "TEST_FAILED %s\n", reason.c_str());
+  if(active) {
+    endCapture(now, replayQuit);
+  } else if(replayQuit) {
+    requestShutdown();
+  }
+}
+
+auto CPU::Profiler::completeReplay(u64 now) -> void {
+  if(replayFinished) return;
+  replayRunning = false;
+  replayActive = false;
+  replayFinished = true;
+  std::fprintf(stderr, "TEST_COMPLETE frames=%zu duration=%u\n",
+               replayFrames.size(), replayDuration);
+  if(active) {
+    endCapture(now, replayQuit);
+  } else if(replayQuit) {
+    requestShutdown();
+  }
+}
+
+auto CPU::Profiler::replayTick(u64 now) -> void {
+  if(!replayRunning || replayFinished) return;
+  if(replayFrameIndex >= replayFrames.size()) {
+    completeReplay(now);
+    return;
+  }
+
+  auto& frame = replayFrames[replayFrameIndex];
+  if(replayHasFrameSeeds) {
+    auto randomSeed = self.readDebug<Dual>(guestAddress(randomSeedAddress));
+    auto chrObjRandomSeed = self.readDebug<Dual>(guestAddress(chrObjRandomSeedAddress));
+    if(randomSeed != frame.randomSeed ||
+       chrObjRandomSeed != frame.chrObjRandomSeed) {
+      std::ostringstream reason;
+      reason << "replay diverged frame=" << replayFrameIndex
+             << std::hex
+             << " randomSeed=" << randomSeed << "/" << frame.randomSeed
+             << " chrObjRandomSeed=" << chrObjRandomSeed << "/"
+             << frame.chrObjRandomSeed;
+      failReplay(reason.str(), now);
+      return;
+    }
+  }
+
+  self.ipu.r[4].u64 = frame.deltaFrames;
+}
+
+auto CPU::Profiler::replayQueueInput() -> void {
+  if(!replayRunning || replayFinished ||
+     replayFrameIndex >= replayFrames.size()) return;
+
+  // Queue exactly one new regular-controller sample before GoldenEye calls
+  // joyConsumeSamples. This mirrors the game's native replay callback and lets
+  // the retail input code derive button transitions and ring state itself.
+  auto current = self.readDebug<Word>(guestAddress(contDataAddress + 0x1e0));
+  if(current >= 20) return;
+  auto next = (current + 1) % 20;
+  auto sample = contDataAddress + next * 24;
+  auto& expected = replayFrames[replayFrameIndex];
+  self.writeDebug<Dual>(guestAddress(sample), 0);
+  self.writeDebug<Dual>(guestAddress(sample + 8), 0);
+  self.writeDebug<Dual>(guestAddress(sample + 16), 0);
+  self.writeDebug<Half>(guestAddress(sample), expected.buttons);
+  self.writeDebug<Byte>(guestAddress(sample + 2), u8(expected.stickX));
+  self.writeDebug<Byte>(guestAddress(sample + 3), u8(expected.stickY));
+  self.writeDebug<Byte>(guestAddress(sample + 4), 0);
+  self.writeDebug<Word>(guestAddress(contDataAddress + 0x1e8), next);
+
+  replayFrameIndex++;
 }
 
 auto CPU::Profiler::functionAt(u32 address) -> size_t {
@@ -190,6 +504,7 @@ auto CPU::Profiler::resetCapture() -> void {
   gameFrameActive = false;
   replayActive = replayRequested;
   pendingReplayStartReturn = 0;
+  pendingReplayOptionReturn = 0;
   pendingCall = false;
 }
 
@@ -218,6 +533,24 @@ auto CPU::Profiler::endCapture(u64 now, bool requestShutdownAfterWrite) -> void 
 
 auto CPU::Profiler::checkTimeout(u64 now) -> bool {
   using namespace std::chrono_literals;
+  if(externalReplay) {
+    if(replayFinished) return false;
+    auto wallNow = std::chrono::steady_clock::now();
+    if(replayRunning) {
+      if(wallNow - lastReplayFrameAt >= 2s) {
+        failReplay("next replay frame was not rendered within 2 seconds", now);
+        return replayQuit;
+      }
+    } else {
+      auto elapsed = std::chrono::duration<double>(wallNow - configuredAt).count();
+      if(elapsed >= 10.0) {
+        failReplay("level did not start before timeout", now);
+        return replayQuit;
+      }
+    }
+    return false;
+  }
+
   auto elapsed = std::chrono::steady_clock::now() - (active ? captureStartedAt : configuredAt);
   if(!active && elapsed >= 60s) {
     std::fprintf(stderr, "ares N64 profiler: timed out waiting 60 seconds for capture to start\n");
@@ -305,9 +638,123 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   auto inReplayStageLoad = inFunction(replayStageLoadFunction);
   auto inReplayStop = inFunction(replayStopFunction);
 
+  if(externalReplay && !replayFinished) {
+    if(pendingReplayOptionReturn && address == pendingReplayOptionReturn) {
+      self.ipu.r[2].u64 = pendingReplayOptionValue;
+      pendingReplayOptionReturn = 0;
+    }
+    if(exactFunction != NoFunction) {
+      auto hook = replayHooks[exactFunction];
+      if(hook != ReplayHook::None) {
+        auto options = replayFrames.empty() ? 0 : replayFrames[
+          std::min(replayFrameIndex, replayFrames.size() - 1)].options;
+        switch(hook) {
+        case ReplayHook::BossMainloop:
+          self.writeDebug<Word>(guestAddress(stageNumAddress), replayStage);
+          self.writeDebug<Word>(guestAddress(selectedDifficultyAddress),
+                                replayDifficulty);
+          self.writeDebug<Word>(guestAddress(levelDifficultyAddress),
+                                replayDifficulty);
+          break;
+        case ReplayHook::StageLoad:
+          self.ipu.r[4].u64 = replayStage;
+          self.writeDebug<Word>(guestAddress(selectedDifficultyAddress),
+                                replayDifficulty);
+          self.writeDebug<Word>(guestAddress(levelDifficultyAddress),
+                                replayDifficulty);
+          self.writeDebug<Dual>(guestAddress(randomSeedAddress),
+                                replayInitialRandomSeed);
+          self.writeDebug<Dual>(guestAddress(chrObjRandomSeedAddress),
+                                replayInitialChrObjRandomSeed);
+          break;
+        case ReplayHook::Difficulty:
+          self.ipu.r[4].u64 = replayDifficulty;
+          break;
+        case ReplayHook::GetControlType:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = options >> 8 & 7;
+          break;
+        case ReplayHook::GetInvertLook:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = (options & 0x0001) != 0;
+          break;
+        case ReplayHook::GetAutoAim:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = (options & 0x0002) != 0;
+          break;
+        case ReplayHook::GetAimControl:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = (options & 0x0004) != 0;
+          break;
+        case ReplayHook::GetSight:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = (options & 0x0008) != 0;
+          break;
+        case ReplayHook::GetLookAhead:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = (options & 0x0010) != 0;
+          break;
+        case ReplayHook::GetAmmo:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = (options & 0x0020) != 0;
+          break;
+        case ReplayHook::GetScreen:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue =
+            options & 0x0800 ? 2 : options & 0x0040 ? 1 : 0;
+          break;
+        case ReplayHook::GetRatio:
+          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
+          pendingReplayOptionValue = (options & 0x0080) != 0;
+          break;
+        case ReplayHook::SetControlType:
+          self.ipu.r[4].u64 = options >> 8 & 7;
+          break;
+        case ReplayHook::SetInvertLook:
+          self.ipu.r[4].u64 = (options & 0x0001) != 0;
+          break;
+        case ReplayHook::SetAutoAim:
+          self.ipu.r[4].u64 = (options & 0x0002) != 0;
+          break;
+        case ReplayHook::SetAimControl:
+          self.ipu.r[4].u64 = (options & 0x0004) != 0;
+          break;
+        case ReplayHook::SetSight:
+          self.ipu.r[4].u64 = (options & 0x0008) != 0;
+          break;
+        case ReplayHook::SetLookAhead:
+          self.ipu.r[4].u64 = (options & 0x0010) != 0;
+          break;
+        case ReplayHook::SetAmmo:
+          self.ipu.r[4].u64 = (options & 0x0020) != 0;
+          break;
+        case ReplayHook::SetScreen:
+          self.ipu.r[4].u64 =
+            options & 0x0800 ? 2 : options & 0x0040 ? 1 : 0;
+          break;
+        case ReplayHook::SetRatio:
+          self.ipu.r[4].u64 = (options & 0x0080) != 0;
+          break;
+        case ReplayHook::JoyConsumeSamples:
+          replayQueueInput();
+          break;
+        case ReplayHook::UpdateFrameCounters:
+          if(replayRunning) {
+            replayTick(now);
+            if(replayFinished) return;
+          }
+          break;
+        case ReplayHook::None:
+          break;
+        }
+      }
+    }
+  }
+
   if(pendingLevelStart && address == pendingLevelReturn) {
     pendingLevelStart = false;
     beginCapture(pendingLevelStage, now);
+    startReplay(now);
   }
 
   if(exactFunction == stageLoadFunction) {
@@ -322,8 +769,13 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   if(pendingLevelStart && currentFunction == stageLoadFunction && instruction_ == 0x03e0'0008u) {
     pendingLevelStart = false;
     beginCapture(pendingLevelStage, now);
+    startReplay(now);
   }
   if(exactFunction == stageUnloadFunction && active) {
+    if(externalReplay && replayRunning) {
+      failReplay("level ended before replay finished", now);
+      return;
+    }
     endCapture(now, true);
     return;
   }
@@ -360,6 +812,13 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
       && instruction_ == 0x03e0'0008u && now >= gameFrameStartCycle) {
     gameFrames.push_back({gameFrameStartCycle, now, gameFrameTlbLoads});
     gameFrameActive = false;
+    if(externalReplay && replayRunning) {
+      lastReplayFrameAt = std::chrono::steady_clock::now();
+      if(replayFrameIndex >= replayFrames.size()) {
+        completeReplay(now);
+        return;
+      }
+    }
   }
   if(exactFunction == softwareTlbLoadFunction && gameFrameActive) {
     gameFrameTlbLoads++;

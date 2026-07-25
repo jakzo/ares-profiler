@@ -31,6 +31,106 @@ stage therefore creates another numbered capture. Each capture writes:
   normal release-ROM function boundaries without guest instrumentation.
 - `*.folded`: guest-cycle weighted call stacks in folded-stack format.
 
+## External GoldenEye replay
+
+The profiler can replay a GoldenEye SRAM recording against an unmodified ROM.
+The matching build ELF is used to locate functions and global objects for every
+ROM version:
+
+```sh
+ARES_N64_PROFILE_SYMBOLS=/path/to/ge007.u.elf \
+ARES_N64_PROFILE_OUTPUT=/path/to/profile/ge007 \
+ARES_N64_REPLAY=/path/to/archives.ram \
+ARES_N64_REPLAY_QUIT=1 \
+  ares --no-file-prompt /path/to/ge007.u.z64
+```
+
+The emulator selects the recorded stage and difficulty, restores the initial
+random seeds, makes recorded options authoritative at their getters and
+setters, queues the controller sample consumed by player 1, and replaces the
+`updateFrameCounters` `$a0` argument with each recorded delta. It reports
+`TEST_COMPLETE` on success and
+`TEST_FAILED` on divergence, premature level exit, or timeout.
+
+Set `ARES_N64_REPLAY_QUIT=1` to exit after either result. Waiting for the level
+to start times out after 10 seconds. Once replay starts, ares fails if the next
+GoldenEye frame is not rendered within two seconds.
+
+### ROM/ELF replay ABI
+
+External replay treats the matching ELF as an ABI. Region-specific addresses
+may change, but the following symbol names, C types, function signatures, and
+relevant structure offsets must remain stable. Functions must be present in the
+full ELF symbol table as `STT_FUNC` entries with nonzero sizes, and objects as
+nonzero-sized `STT_OBJECT` entries. Stripping these symbols prevents replay
+startup; local or global ELF binding is accepted.
+
+Required object symbols:
+
+| Symbol | Required C type | Use |
+| --- | --- | --- |
+| `g_StageNum` | `s32` | Selects the recorded stage. |
+| `selected_difficulty` | `DIFFICULTY` (32-bit enum) | Sets front-end difficulty state. |
+| `g_SelectedDifficulty` | `s32` | Sets live level and AI difficulty before stage load. |
+| `g_CurrentPlayer` | `struct player *` | Applies the recorded single-player control style. |
+| `g_ContData` | `struct contdata[2]` | Queues recorded controller samples. |
+| `g_randomSeed` | `u64` | Restores and verifies the gameplay RNG. |
+| `g_chrObjRandomSeed` | `u64` | Restores and verifies the character/object RNG. |
+
+Required function symbols and signatures:
+
+```c
+void bossMainloop(void);
+void lvlStageLoad(s32 stage);
+void lvlUnloadStageTextData(void);
+void updateFrameCounters(s32 deltaFrames);
+void joyConsumeSamplesWrapper(void);
+
+Gfx *dynGetMasterDisplayList(void);
+Gfx *debmenuDraw(Gfx *gdl);
+
+int cur_player_get_control_type(void);
+u32 get_cur_player_look_vertical_inverted(void);
+s32 cur_player_get_autoaim(void);
+u32 cur_player_get_aim_control(void);
+u32 cur_player_get_sight_onscreen_control(void);
+u32 cur_player_get_lookahead(void);
+u32 cur_player_get_ammo_onscreen_setting(void);
+u32 cur_player_get_screen_setting(void);
+SCREEN_RATIO_OPTION get_screen_ratio(void);
+```
+
+The two guest layouts used by replay are also ABI:
+
+- `g_ContData[0]` must be the regular controller ring. `struct contsample`
+  remains 24 bytes; `curlast` remains at `0x1e0`, `nextlast` at `0x1e8`, and
+  the 20 samples begin at offset zero.
+- `g_CurrentPlayer` points to `struct player`; the two `s32` control-style
+  fields remain at offsets `0x2a58` and `0x2a5c`.
+
+The following setter symbols are optional compatibility hooks. When present,
+ares overrides their first argument, but replay correctness does not depend on
+them because the required globals and getters are authoritative:
+
+```c
+set_selected_difficulty
+lvlSetSelectedDifficulty
+cur_player_set_control_type
+set_cur_player_look_vertical_inverted
+cur_player_set_autoaim
+cur_player_set_aim_control
+cur_player_set_sight_onscreen_control
+cur_player_set_lookahead
+cur_player_set_ammo_onscreen_setting
+cur_player_set_screen_setting
+set_screen_ratio
+```
+
+`tlbmanageTranslateLoadRomFromTlbAddress` is optional and enables per-game-frame
+software TLB-load counts. `practice_replay_on_stage_load` and
+`practice_replay_stop_playback` are optional boundaries used only when profiling
+an instrumented guest replay rather than `ARES_N64_REPLAY`.
+
 ares exits automatically after writing a capture. It also exits if capture has
 not started within 60 seconds, or writes a partial capture and exits if an
 active capture has not finished within 10 minutes. The generated file paths are

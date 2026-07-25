@@ -1,3 +1,9 @@
+
+# ares fork for GoldenEye profiling and replay
+
+This fork can profile GoldenEye guest code and play SRAM replay recordings against unmodified ROMs. See the [N64 guest profiler and replay guide](ares/n64/PROFILER.md), including its [ROM/ELF replay ABI](ares/n64/PROFILER.md#romelf-replay-abi), for environment variables, required symbols, and guest-layout constraints.
+
+
 <img src="https://github.com/ares-emulator/ares/blob/master/ares/ares/resource/logo@2x.png" width="350"/>
 
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://github.com/higan-emu/ares/blob/master/LICENSE)

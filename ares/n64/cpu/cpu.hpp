@@ -1298,6 +1298,21 @@ struct CPU : Thread {
       u64 inclusiveCycles = 0;
     };
 
+    struct Object {
+      u32 address = 0;
+      u32 size = 0;
+    };
+
+    struct ReplayFrameData {
+      u64 randomSeed = 0;
+      u64 chrObjRandomSeed = 0;
+      u16 buttons = 0;
+      u16 options = 0;
+      s8 stickX = 0;
+      s8 stickY = 0;
+      u8 deltaFrames = 0;
+    };
+
     struct StackFrame {
       size_t function = 0;
       u32 returnAddress = 0;
@@ -1336,9 +1351,44 @@ struct CPU : Thread {
     static constexpr size_t NoFunction = ~size_t{0};
     static constexpr u32 GoldenEyeTitleStage = 90;
 
+    enum class ReplayHook : u8 {
+      None,
+      BossMainloop,
+      StageLoad,
+      Difficulty,
+      GetControlType,
+      GetInvertLook,
+      GetAutoAim,
+      GetAimControl,
+      GetSight,
+      GetLookAhead,
+      GetAmmo,
+      GetScreen,
+      GetRatio,
+      SetControlType,
+      SetInvertLook,
+      SetAutoAim,
+      SetAimControl,
+      SetSight,
+      SetLookAhead,
+      SetAmmo,
+      SetScreen,
+      SetRatio,
+      JoyConsumeSamples,
+      UpdateFrameCounters,
+    };
+
     auto loadSymbols(const std::string& path) -> bool;
     auto functionAt(u32 address) -> size_t;
     auto functionStartingAt(u32 address) const -> size_t;
+    auto objectAddress(const char* name) const -> u32;
+    auto loadReplay(const std::string& path) -> bool;
+    auto startReplay(u64 now) -> void;
+    auto replayTick(u64 now) -> void;
+    auto replayQueueInput() -> void;
+    auto failReplay(const std::string& reason, u64 now) -> void;
+    auto completeReplay(u64 now) -> void;
+    static auto guestAddress(u32 address) -> u64;
     auto cycles() const -> u64;
     auto beginCapture(u32 stage, u64 now) -> void;
     auto endCapture(u64 now, bool requestShutdown = false) -> void;
@@ -1363,13 +1413,30 @@ struct CPU : Thread {
     bool replayActive = false;
     bool replayRequested = false;
     bool gameFrameActive = false;
+    bool externalReplay = false;
+    bool replayRunning = false;
+    bool replayFinished = false;
+    bool replayQuit = false;
+    bool replayHasFrameSeeds = false;
     u32 pendingLevelStage = 0;
     u32 pendingLevelReturn = 0;
     u32 pendingCallDelay = 0;
     u32 pendingCallTarget = 0;
     u32 pendingCallReturn = 0;
     u32 pendingReplayStartReturn = 0;
+    u32 pendingReplayOptionReturn = 0;
+    u32 pendingReplayOptionValue = 0;
     u32 captureSequence = 0;
+    u32 replayDuration = 0;
+    u32 stageNumAddress = 0;
+    u32 selectedDifficultyAddress = 0;
+    u32 levelDifficultyAddress = 0;
+    u32 currentPlayerAddress = 0;
+    u32 contDataAddress = 0;
+    u32 randomSeedAddress = 0;
+    u32 chrObjRandomSeedAddress = 0;
+    u8 replayStage = 0;
+    u8 replayDifficulty = 0;
     u32 captureStage = 0;
     size_t stageLoadFunction = NoFunction;
     size_t stageUnloadFunction = NoFunction;
@@ -1378,6 +1445,21 @@ struct CPU : Thread {
     size_t masterDisplayListFunction = NoFunction;
     size_t debugMenuDrawFunction = NoFunction;
     size_t softwareTlbLoadFunction = NoFunction;
+    size_t bossMainloopFunction = NoFunction;
+    size_t updateFrameCountersFunction = NoFunction;
+    size_t joyConsumeSamplesFunction = NoFunction;
+    size_t getControlTypeFunction = NoFunction;
+    size_t setSelectedDifficultyFunction = NoFunction;
+    size_t lvlSetSelectedDifficultyFunction = NoFunction;
+    size_t setControlTypeFunction = NoFunction;
+    size_t setInvertLookFunction = NoFunction;
+    size_t setAutoAimFunction = NoFunction;
+    size_t setAimControlFunction = NoFunction;
+    size_t setSightFunction = NoFunction;
+    size_t setLookAheadFunction = NoFunction;
+    size_t setAmmoFunction = NoFunction;
+    size_t setScreenFunction = NoFunction;
+    size_t setRatioFunction = NoFunction;
     size_t lastFunction = NoFunction;
     u64 captureStartCycle = 0;
     u64 captureEndCycle = 0;
@@ -1389,12 +1471,20 @@ struct CPU : Thread {
     u64 tlbMissing = 0;
     u64 gameFrameStartCycle = 0;
     u64 gameFrameTlbLoads = 0;
+    u64 replayInitialRandomSeed = 0;
+    u64 replayInitialChrObjRandomSeed = 0;
+    size_t replayFrameIndex = 0;
     std::chrono::steady_clock::time_point configuredAt;
     std::chrono::steady_clock::time_point captureStartedAt;
+    std::chrono::steady_clock::time_point lastReplayFrameAt;
     std::string symbolsPath;
+    std::string replayPath;
     std::filesystem::path outputPrefix;
     std::string foldedKey;
     std::vector<Function> functions;
+    std::vector<ReplayHook> replayHooks;
+    std::vector<ReplayFrameData> replayFrames;
+    std::unordered_map<std::string, Object> objects;
     std::unordered_map<u32, size_t> functionStarts;
     static constexpr size_t FunctionCacheSize = 1 << 16;
     struct FunctionCacheEntry {
