@@ -56,6 +56,10 @@ Set `ARES_N64_REPLAY_QUIT=1` to exit after either result. Waiting for the level
 to start times out after 10 seconds. Once replay starts, ares fails if the next
 GoldenEye frame is not rendered within two seconds.
 
+While replay is running, ares writes
+`REPLAY_STATUS frame=<completed>/<total>` every 10 seconds so unattended test
+runners can distinguish a long recording from a stalled emulator.
+
 ### ROM/ELF replay ABI
 
 External replay treats the matching ELF as an ABI. Region-specific addresses
@@ -103,8 +107,8 @@ SCREEN_RATIO_OPTION get_screen_ratio(void);
 The two guest layouts used by replay are also ABI:
 
 - `g_ContData[0]` must be the regular controller ring. `struct contsample`
-  remains 24 bytes; `curlast` remains at `0x1e0`, `nextlast` at `0x1e8`, and
-  the 20 samples begin at offset zero.
+  remains 24 bytes; the 20 samples begin at offset zero, `curlast` remains at
+  `0x1e0`, `nextlast` at `0x1e8`, and `playbackcontcount` at `0x1f8`.
 - `g_CurrentPlayer` points to `struct player`; the two `s32` control-style
   fields remain at offsets `0x2a58` and `0x2a5c`.
 

@@ -1477,6 +1477,7 @@ struct CPU : Thread {
     std::chrono::steady_clock::time_point configuredAt;
     std::chrono::steady_clock::time_point captureStartedAt;
     std::chrono::steady_clock::time_point lastReplayFrameAt;
+    std::chrono::steady_clock::time_point lastReplayStatusAt;
     std::string symbolsPath;
     std::string replayPath;
     std::filesystem::path outputPrefix;

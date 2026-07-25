@@ -1,0 +1,89 @@
+name: GoldenEye replay tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout ares
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install build and headless-test dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            build-essential \
+            cmake \
+            libcanberra-gtk3-module \
+            libcapstone-dev \
+            libgl-dev \
+            libgtk-3-dev \
+            mesa-vulkan-drivers \
+            ninja-build \
+            pkg-config \
+            xauth \
+            xvfb
+
+      - name: Download Goldeneye US ROM and ELF
+        env:
+          GOLDENEYE_US_Z64_URL: ${{ secrets.GOLDENEYE_US_Z64_DOWNLOAD_LINK }}
+          GOLDENEYE_US_ELF_URL: ${{ secrets.GOLDENEYE_US_ELF_DOWNLOAD_LINK }}
+        run: |
+          curl --fail --location --retry 3 \
+            --output goldeneye.us.z64 "$GOLDENEYE_US_Z64_URL"
+          curl --fail --location --retry 3 \
+            --output goldeneye.us.elf "$GOLDENEYE_US_ELF_URL"
+          test "$(stat --format=%s goldeneye.us.z64)" -eq 12582912
+          test "$(stat --format=%s goldeneye.us.elf)" -ge 100000
+
+      - name: Build ares N64
+        env:
+          ARES_PREFIX: ${{ runner.temp }}/ares
+        run: |
+          cmake \
+            -S . \
+            -B "$RUNNER_TEMP/ares-build" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$ARES_PREFIX" \
+            -DARES_CORES=n64 \
+            -DARES_BUILD_LOCAL=OFF \
+            -DARES_BUNDLE_SHADERS=OFF \
+            -DARES_ENABLE_LIBRASHADER=OFF \
+            -DENABLE_IPO=OFF \
+            -DARES_ENABLE_ALSA=OFF \
+            -DARES_ENABLE_AO=OFF \
+            -DARES_ENABLE_OPENAL=OFF \
+            -DARES_ENABLE_OSS=OFF \
+            -DARES_ENABLE_PULSEAUDIO=OFF \
+            -DARES_ENABLE_SDL=OFF \
+            -DARES_ENABLE_UDEV=OFF
+          cmake --build "$RUNNER_TEMP/ares-build" --parallel 2
+          cmake --install "$RUNNER_TEMP/ares-build"
+
+      - name: Run GoldenEye replays
+        run: |
+          xvfb-run --auto-servernum \
+            --server-args="-screen 0 640x480x24 -nolisten tcp -ac" \
+            tests/n64-replay/run.py \
+              --ares "$RUNNER_TEMP/ares/bin/ares" \
+              --rom goldeneye.us.z64 \
+              --elf goldeneye.us.elf \
+              --artifacts "$RUNNER_TEMP/replay-results" \
+              --junit-xml "$RUNNER_TEMP/replay-results/results.xml"
+
+      - name: Upload replay logs and profiles
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: goldeneye-replay-results-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/replay-results
+          if-no-files-found: warn
+          retention-days: 14

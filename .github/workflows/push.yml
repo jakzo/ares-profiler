@@ -18,9 +18,15 @@ jobs:
     name: Build ares (auxiliary)
     uses: ./.github/workflows/build-aux.yml
     secrets: inherit
+  replay-test:
+    name: Test GoldenEye replays
+    uses: ./.github/workflows/replay-test.yml
+    secrets: inherit
   release:
     name: Release
-    needs: build
+    needs:
+      - build
+      - replay-test
     secrets: inherit
     uses: ./.github/workflows/release.yml
     with:

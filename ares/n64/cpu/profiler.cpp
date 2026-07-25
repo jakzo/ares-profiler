@@ -355,6 +355,7 @@ auto CPU::Profiler::startReplay(u64 now) -> void {
   replayFrameIndex = 0;
   auto& first = replayFrames.front();
   lastReplayFrameAt = std::chrono::steady_clock::now();
+  lastReplayStatusAt = lastReplayFrameAt;
 
   // A clean single-player ROM may not call the control-type setter because
   // no save profile was loaded. Apply the recorded scheme to the live player
@@ -366,6 +367,14 @@ auto CPU::Profiler::startReplay(u64 now) -> void {
     self.writeDebug<Word>(guestAddress(player + 0x2a58), controlType);
     self.writeDebug<Word>(guestAddress(player + 0x2a5c), controlType);
   }
+
+  // The regular controller ring normally has a negative playback controller
+  // count and therefore depends on a physically connected controller. External
+  // replay supplies that ring itself, so expose player 1 exactly as GoldenEye's
+  // native playback ring does. Otherwise a headless Input/Driver=None run
+  // returns zero from joyGetButtons/joyGetStick despite the queued samples.
+  self.writeDebug<Word>(guestAddress(contDataAddress + 0x1f8), 1);
+
   std::fprintf(stderr, "REPLAY_STARTED frames=%zu duration=%u\n",
                replayFrames.size(), replayDuration);
 }
@@ -540,6 +549,11 @@ auto CPU::Profiler::checkTimeout(u64 now) -> bool {
       if(wallNow - lastReplayFrameAt >= 2s) {
         failReplay("next replay frame was not rendered within 2 seconds", now);
         return replayQuit;
+      }
+      if(wallNow - lastReplayStatusAt >= 10s) {
+        std::fprintf(stderr, "REPLAY_STATUS frame=%zu/%zu\n",
+                     replayFrameIndex, replayFrames.size());
+        lastReplayStatusAt = wallNow;
       }
     } else {
       auto elapsed = std::chrono::duration<double>(wallNow - configuredAt).count();
