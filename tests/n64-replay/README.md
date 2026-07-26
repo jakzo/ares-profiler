@@ -4,7 +4,10 @@ This harness runs recorded GoldenEye SRAM replays against a ROM,
 using its matching ELF for the external replay ABI and profiler symbols. Each
 test uses a private ROM copy so ares save data cannot modify the source ROM.
 It requires ares to report `TEST_COMPLETE`, rejects `TEST_FAILED`, and checks
-that all profiler output files were flushed before ares exited.
+that all profiler output files were flushed before ares exited. The generated
+summary, function, TLB, video-frame, game-frame, and folded-stack profiles are
+parsed and checked for valid headers, numeric data, consistent totals, and the
+expected number of replay frames.
 The runner stops a hung process if it goes 20
 seconds without `REPLAY_STARTED` or a `REPLAY_STATUS` heartbeat from ares.
 

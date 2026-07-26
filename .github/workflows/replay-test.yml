@@ -15,6 +15,9 @@ jobs:
       - name: Checkout ares
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
+      - name: Test replay profiler validation
+        run: python3 -m unittest discover -s tests/n64-replay -p 'test_*.py'
+
       - name: Install build and headless-test dependencies
         run: |
           sudo apt-get update

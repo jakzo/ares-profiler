@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import csv
 import os
 import queue
 import re
@@ -38,6 +39,34 @@ PROFILE_SUFFIXES = (
     "-game-frames.csv",
     ".folded",
 )
+PROFILE_CSV_HEADERS = {
+    "-summary.csv": ("metric", "value"),
+    "-functions.csv": (
+        "address",
+        "size",
+        "name",
+        "calls",
+        "self_cycles",
+        "inclusive_cycles",
+    ),
+    "-tlb.csv": (
+        "page",
+        "accesses",
+        "loads",
+        "stores",
+        "cache_hits",
+        "cache_misses",
+        "missing",
+    ),
+    "-frames.csv": ("frame", "start_cycle", "end_cycle", "delta_cycles"),
+    "-game-frames.csv": (
+        "frame",
+        "tick_cycles",
+        "tlb_loads",
+        "start_cycle",
+        "end_cycle",
+    ),
+}
 
 
 @dataclass
@@ -147,13 +176,215 @@ def stop_process(process):
         process.wait()
 
 
-def verify_profiles(prefix):
-    missing = []
+def profile_path(prefix, suffix):
+    return prefix.parent / f"{prefix.name}-001{suffix}"
+
+
+def read_profile_csv(prefix, suffix, errors):
+    path = profile_path(prefix, suffix)
+    try:
+        with path.open(newline="", encoding="utf-8") as profile:
+            reader = csv.DictReader(profile)
+            expected = list(PROFILE_CSV_HEADERS[suffix])
+            if reader.fieldnames != expected:
+                errors.append(
+                    f"{path.name} has header {reader.fieldnames}, expected {expected}"
+                )
+                return []
+            return list(reader)
+    except (OSError, csv.Error) as error:
+        errors.append(f"could not read {path.name}: {error}")
+        return []
+
+
+def profile_integer(row, field, context, errors, base=10):
+    try:
+        return int(row[field], base)
+    except (KeyError, TypeError, ValueError):
+        errors.append(f"{context} has invalid {field}: {row.get(field)!r}")
+        return None
+
+
+def verify_profiles(prefix, expected_game_frames):
+    errors = []
     for suffix in PROFILE_SUFFIXES:
-        path = prefix.parent / f"{prefix.name}-001{suffix}"
+        path = profile_path(prefix, suffix)
         if not path.is_file() or path.stat().st_size == 0:
-            missing.append(path.name)
-    return missing
+            errors.append(f"missing or empty {path.name}")
+    if errors:
+        return errors
+
+    summary_rows = read_profile_csv(prefix, "-summary.csv", errors)
+    summary = {}
+    for row in summary_rows:
+        metric = row["metric"]
+        if metric in summary:
+            errors.append(f"summary has duplicate metric {metric!r}")
+            continue
+        summary[metric] = profile_integer(
+            row, "value", f"summary metric {metric!r}", errors
+        )
+    expected_metrics = {
+        "stage",
+        "start_cycle",
+        "end_cycle",
+        "total_cycles",
+        "frames",
+        "average_frame_delta",
+        "tlb_cache_hits",
+        "tlb_cache_misses",
+        "tlb_missing",
+    }
+    missing_metrics = sorted(expected_metrics - summary.keys())
+    if missing_metrics:
+        errors.append(f"summary is missing metrics: {', '.join(missing_metrics)}")
+
+    function_rows = read_profile_csv(prefix, "-functions.csv", errors)
+    function_cycles = 0
+    for index, row in enumerate(function_rows):
+        context = f"function row {index}"
+        address = profile_integer(row, "address", context, errors, 0)
+        size = profile_integer(row, "size", context, errors)
+        calls = profile_integer(row, "calls", context, errors)
+        self_cycles = profile_integer(row, "self_cycles", context, errors)
+        inclusive_cycles = profile_integer(
+            row, "inclusive_cycles", context, errors
+        )
+        if not row["name"]:
+            errors.append(f"{context} has an empty name")
+        if address is not None and address < 0:
+            errors.append(f"{context} has a negative address")
+        for field, value in (
+            ("size", size),
+            ("calls", calls),
+            ("self_cycles", self_cycles),
+            ("inclusive_cycles", inclusive_cycles),
+        ):
+            if value is not None and value < 0:
+                errors.append(f"{context} has negative {field}")
+        if self_cycles is not None:
+            function_cycles += self_cycles
+    if not function_rows:
+        errors.append("functions profile has no rows")
+    elif function_cycles == 0:
+        errors.append("functions profile has no attributed cycles")
+
+    tlb_rows = read_profile_csv(prefix, "-tlb.csv", errors)
+    tlb_totals = {"cache_hits": 0, "cache_misses": 0, "missing": 0}
+    for index, row in enumerate(tlb_rows):
+        context = f"TLB row {index}"
+        profile_integer(row, "page", context, errors, 0)
+        values = {
+            field: profile_integer(row, field, context, errors)
+            for field in (
+                "accesses",
+                "loads",
+                "stores",
+                "cache_hits",
+                "cache_misses",
+                "missing",
+            )
+        }
+        if any(value is None for value in values.values()):
+            continue
+        if any(value < 0 for value in values.values()):
+            errors.append(f"{context} contains a negative count")
+            continue
+        if values["loads"] + values["stores"] != values["accesses"]:
+            errors.append(f"{context} loads and stores do not equal accesses")
+        if values["cache_hits"] + values["cache_misses"] != values["accesses"]:
+            errors.append(f"{context} cache results do not equal accesses")
+        if values["missing"] > values["cache_misses"]:
+            errors.append(f"{context} missing count exceeds cache misses")
+        for field in tlb_totals:
+            tlb_totals[field] += values[field]
+    if not tlb_rows:
+        errors.append("TLB profile has no rows")
+
+    frame_rows = read_profile_csv(prefix, "-frames.csv", errors)
+    frame_delta_total = 0
+    for index, row in enumerate(frame_rows):
+        context = f"frame row {index}"
+        frame = profile_integer(row, "frame", context, errors)
+        start = profile_integer(row, "start_cycle", context, errors)
+        end = profile_integer(row, "end_cycle", context, errors)
+        delta = profile_integer(row, "delta_cycles", context, errors)
+        if None in (frame, start, end, delta):
+            continue
+        if frame != index:
+            errors.append(f"{context} has non-sequential frame number {frame}")
+        if end <= start or delta != end - start:
+            errors.append(f"{context} has inconsistent cycle bounds")
+        frame_delta_total += delta
+    if not frame_rows:
+        errors.append("frame profile has no rows")
+
+    game_frame_rows = read_profile_csv(prefix, "-game-frames.csv", errors)
+    for index, row in enumerate(game_frame_rows):
+        context = f"game frame row {index}"
+        frame = profile_integer(row, "frame", context, errors)
+        ticks = profile_integer(row, "tick_cycles", context, errors)
+        tlb_loads = profile_integer(row, "tlb_loads", context, errors)
+        start = profile_integer(row, "start_cycle", context, errors)
+        end = profile_integer(row, "end_cycle", context, errors)
+        if None in (frame, ticks, tlb_loads, start, end):
+            continue
+        if frame != index:
+            errors.append(f"{context} has non-sequential frame number {frame}")
+        if end <= start or ticks != (end - start) // 2:
+            errors.append(f"{context} has inconsistent cycle bounds")
+        if tlb_loads < 0:
+            errors.append(f"{context} has negative TLB loads")
+    if len(game_frame_rows) != expected_game_frames:
+        errors.append(
+            "game frame profile has "
+            f"{len(game_frame_rows)} rows, expected {expected_game_frames}"
+        )
+
+    folded_path = profile_path(prefix, ".folded")
+    folded_cycles = 0
+    try:
+        for index, line in enumerate(
+            folded_path.read_text(encoding="utf-8").splitlines()
+        ):
+            callstack, separator, count = line.rpartition(" ")
+            try:
+                cycles = int(count)
+            except ValueError:
+                cycles = 0
+            if not separator or not callstack or cycles <= 0:
+                errors.append(f"folded row {index} is invalid: {line!r}")
+            else:
+                folded_cycles += cycles
+    except OSError as error:
+        errors.append(f"could not read {folded_path.name}: {error}")
+    if folded_cycles == 0:
+        errors.append("folded profile has no attributed cycles")
+
+    if expected_metrics <= summary.keys() and all(
+        summary[metric] is not None for metric in expected_metrics
+    ):
+        if summary["end_cycle"] <= summary["start_cycle"]:
+            errors.append("summary end cycle does not follow start cycle")
+        if summary["total_cycles"] != (
+            summary["end_cycle"] - summary["start_cycle"]
+        ):
+            errors.append("summary total cycles do not match its cycle bounds")
+        if summary["frames"] != len(frame_rows):
+            errors.append("summary frame count does not match frame profile")
+        expected_average = (
+            frame_delta_total // len(frame_rows) if frame_rows else 0
+        )
+        if summary["average_frame_delta"] != expected_average:
+            errors.append("summary average frame delta does not match frame profile")
+        for field, metric in (
+            ("cache_hits", "tlb_cache_hits"),
+            ("cache_misses", "tlb_cache_misses"),
+            ("missing", "tlb_missing"),
+        ):
+            if summary[metric] != tlb_totals[field]:
+                errors.append(f"summary {metric} does not match TLB profile")
+    return errors
 
 
 def run_replay(ares, rom, elf, replay, artifacts):
@@ -284,12 +515,12 @@ def run_replay(ares, rom, elf, replay, artifacts):
             duration,
             combined_output,
         )
-    missing_profiles = verify_profiles(profile_prefix)
-    if missing_profiles:
+    profile_errors = verify_profiles(profile_prefix, expected_frames)
+    if profile_errors:
         return Result(
             name,
             False,
-            f"missing profiler output: {', '.join(missing_profiles)}",
+            f"invalid profiler output: {'; '.join(profile_errors)}",
             duration,
             combined_output,
         )
