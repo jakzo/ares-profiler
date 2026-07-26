@@ -30,7 +30,7 @@ jobs:
           install: make git cmake ccache ninja mingw-w64-clang-x86_64-clang
           target-cmake-preset: windows-ci-mingw-native
         - name: windows-clang-cl-arm64
-          os: windows-latest
+          os: windows-2022
           windres: rc
           shell: bash
           target-cmake-preset: windows-ci-cl-cross
