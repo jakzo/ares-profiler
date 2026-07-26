@@ -695,14 +695,9 @@ auto CPU::Recompiler::emit(u64 vaddr, u32 address, u64 stateKey) -> Block* {
     emitCallfSetupDone = false;
     emitCallfEmitted = false;
 
-    if(callInstructionPrologue) {
-      // Optional debugger/profiler instruction hook.
-      flushDeferredCycles();
-      callf(&CPU::instructionPrologue, imm64(ii.vaddr), imm(instruction));
-    }
-
     if(isInternalEntry) {
-      // Resolve this internal entry and patch all pending forward jumps.
+      // Resolve this internal entry before emitting the instruction prologue so
+      // every entry path observes the debugger/profiler hook.
       flushDeferredCycles();
       auto lbl = sljit_emit_label(compiler);
       *findInternalLabel(ii.vaddr) = lbl;
@@ -715,6 +710,12 @@ auto CPU::Recompiler::emit(u64 vaddr, u32 address, u64 stateKey) -> Block* {
           k++;
         }
       }
+    }
+
+    if(callInstructionPrologue) {
+      // Optional debugger/profiler instruction hook.
+      flushDeferredCycles();
+      callf(&CPU::instructionPrologue, imm64(ii.vaddr), imm(instruction));
     }
 
     if(firstInstruction || (ii.vaddr & 0x1f) == 0) {
