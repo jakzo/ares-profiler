@@ -9,7 +9,14 @@ permissions:
 
 jobs:
   replay:
+    name: replay (${{ matrix.replay-group }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        replay-group:
+          - dam
+          - remaining
 
     steps:
       - name: Checkout ares
@@ -73,12 +80,23 @@ jobs:
 
       - name: Run GoldenEye replays
         run: |
+          if [[ "${{ matrix.replay-group }}" == "dam" ]]; then
+            replay_args=(--replay dam)
+          else
+            replay_args=(
+              --replay archives
+              --replay frigate_00
+              --replay runway
+              --replay runway_agent_grenade
+            )
+          fi
           xvfb-run --auto-servernum \
             --server-args="-screen 0 640x480x24 -nolisten tcp -ac" \
             tests/n64-replay/run.py \
               --ares "$RUNNER_TEMP/ares/bin/ares" \
               --rom goldeneye.us.z64 \
               --elf goldeneye.us.elf \
+              "${replay_args[@]}" \
               --artifacts "$RUNNER_TEMP/replay-results" \
               --junit-xml "$RUNNER_TEMP/replay-results/results.xml"
 
@@ -86,7 +104,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: goldeneye-replay-results-${{ github.run_attempt }}
+          name: goldeneye-replay-results-${{ matrix.replay-group }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/replay-results
           if-no-files-found: warn
           retention-days: 14
