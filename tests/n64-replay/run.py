@@ -31,6 +31,11 @@ REPLAY_VERSION = 1
 SRAM_SIZE = 128 * 1024
 STATUS_TIMEOUT_SECONDS = 20
 COMPLETE_PATTERN = re.compile(r"\bTEST_COMPLETE frames=(\d+)\b")
+SEMVER_PATTERN = re.compile(
+    r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+)
 PROFILE_SUFFIXES = (
     "-summary.csv",
     "-functions.csv",
@@ -215,15 +220,6 @@ def verify_profiles(prefix, expected_game_frames):
         return errors
 
     summary_rows = read_profile_csv(prefix, "-summary.csv", errors)
-    summary = {}
-    for row in summary_rows:
-        metric = row["metric"]
-        if metric in summary:
-            errors.append(f"summary has duplicate metric {metric!r}")
-            continue
-        summary[metric] = profile_integer(
-            row, "value", f"summary metric {metric!r}", errors
-        )
     expected_metrics = {
         "stage",
         "start_cycle",
@@ -235,9 +231,31 @@ def verify_profiles(prefix, expected_game_frames):
         "tlb_cache_misses",
         "tlb_missing",
     }
-    missing_metrics = sorted(expected_metrics - summary.keys())
+    expected_version_metrics = {"ares_version", "profiler_version"}
+    summary = {}
+    for row in summary_rows:
+        metric = row["metric"]
+        if metric in summary:
+            errors.append(f"summary has duplicate metric {metric!r}")
+            continue
+        if metric in expected_metrics:
+            summary[metric] = profile_integer(
+                row, "value", f"summary metric {metric!r}", errors
+            )
+        else:
+            summary[metric] = row["value"]
+    missing_metrics = sorted(
+        (expected_metrics | expected_version_metrics) - summary.keys()
+    )
     if missing_metrics:
         errors.append(f"summary is missing metrics: {', '.join(missing_metrics)}")
+    if "ares_version" in summary and not summary["ares_version"]:
+        errors.append("summary has an empty ares version")
+    if (
+        "profiler_version" in summary
+        and not SEMVER_PATTERN.fullmatch(summary["profiler_version"])
+    ):
+        errors.append("summary has an invalid profiler semantic version")
 
     function_rows = read_profile_csv(prefix, "-functions.csv", errors)
     function_cycles = 0

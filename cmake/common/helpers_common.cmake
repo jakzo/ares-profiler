@@ -34,6 +34,7 @@ function(message_configuration)
     "                    .-::::::::    / /_/ / /  /  __(__  )\n"
     "                      .::::.      \\__,_/_/   \\___/____/\n"
     "\n   ares version: ${ARES_VERSION} (${ARES_VERSION_CANONICAL})\n"
+    "   profiler version: ${ARES_PROFILER_VERSION}\n"
     "=================================================================================="
   )
 

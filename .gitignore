@@ -17,6 +17,7 @@
 !/tools
 !/GNUMakefile
 !/LICENSE
+!/PROFILER_VERSION
 !/README.md
 !.editorconfig
 !.gitignore

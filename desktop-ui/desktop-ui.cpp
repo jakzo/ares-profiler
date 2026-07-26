@@ -176,12 +176,12 @@ auto nall::main(Arguments arguments) -> void {
     for(auto& emulator : emulators) {
       print(emulator->name, ", ");
     }
-    print("\n\nares version ", ares::Version, "\n");
+    print("\n\nares version ", ares::FullVersion, "\n");
     return;
   }
 
   if(arguments.take("--version")) {
-    print("\n", ares::Version, "\n");
+    print("\n", ares::FullVersion, "\n");
     return;
   }
 

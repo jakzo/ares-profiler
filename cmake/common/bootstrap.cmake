@@ -19,6 +19,15 @@ endif()
 # Set default global project variables
 set(ARES_NAME "ares")
 set(ARES_WEBSITE "ares-emu.net")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/PROFILER_VERSION" ARES_PROFILER_VERSION)
+string(STRIP "${ARES_PROFILER_VERSION}" ARES_PROFILER_VERSION)
+set(
+  ARES_PROFILER_SEMVER_PATTERN
+  "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+)
+if(NOT ARES_PROFILER_VERSION MATCHES "${ARES_PROFILER_SEMVER_PATTERN}")
+  message(FATAL_ERROR "Invalid profiler semantic version: '${ARES_PROFILER_VERSION}'")
+endif()
 set(
   ARES_COMMENTS
   "ares is a cross-platform, open source, multi-system emulator, focusing on accuracy and preservation."

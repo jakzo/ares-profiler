@@ -950,6 +950,8 @@ auto CPU::Profiler::writeCapture() -> void {
   {
     std::ofstream output(summaryPath);
     output << "metric,value\n"
+           << "ares_version," << csv((const char*)ares::Version) << "\n"
+           << "profiler_version," << csv((const char*)ares::ProfilerVersion) << "\n"
            << "stage," << captureStage << "\n"
            << "start_cycle," << captureStartCycle << "\n"
            << "end_cycle," << captureEndCycle << "\n"

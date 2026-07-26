@@ -20,6 +20,8 @@ class ProfileValidationTest(unittest.TestCase):
         self.write(
             "-summary.csv",
             """metric,value
+ares_version,"v148-10-gabcdef"
+profiler_version,"0.1.0"
 stage,35
 start_cycle,100
 end_cycle,1000
@@ -85,6 +87,23 @@ tlb_missing,1
                 ".folded",
                 "test_function nope\n",
                 "folded row 0 is invalid",
+            ),
+            "invalid profiler version": (
+                "-summary.csv",
+                """metric,value
+ares_version,"v148-10-gabcdef"
+profiler_version,"not-semver"
+stage,35
+start_cycle,100
+end_cycle,1000
+total_cycles,900
+frames,2
+average_frame_delta,250
+tlb_cache_hits,3
+tlb_cache_misses,1
+tlb_missing,1
+""",
+                "invalid profiler semantic version",
             ),
         }
         for name, (suffix, contents, expected_error) in corruptions.items():

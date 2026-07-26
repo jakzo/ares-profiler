@@ -178,7 +178,7 @@ Presentation::Presentation() {
     menuBar.setVisible(false);
     layout.remove(statusLayout);
     resizeWindow();
-    setTitle({ares::Name, " ", ares::Version});
+    setTitle({ares::Name, " ", ares::FullVersion});
     setAssociatedFile();
     setBackgroundColor({0, 0, 0});
     setAlignment(Alignment::Center);
@@ -422,7 +422,7 @@ Presentation::Presentation() {
     .setName(ares::Name)
     .setLogo(logo)
     .setDescription({ares::Name, " — a simplified multi-system emulator"})
-    .setVersion(ares::Version)
+    .setVersion(ares::FullVersion)
     .setCopyright(ares::Copyright)
     .setLicense(ares::License, ares::LicenseURI)
     .setWebsite(ares::Website, ares::WebsiteURI)
@@ -480,7 +480,7 @@ Presentation::Presentation() {
   loadEmulators();
 
   resizeWindow();
-  setTitle({ares::Name, " ", ares::Version});
+  setTitle({ares::Name, " ", ares::FullVersion});
   setAssociatedFile();
   setBackgroundColor({0, 0, 0});
   setAlignment(Alignment::Center);
@@ -987,7 +987,7 @@ auto Presentation::refreshSystemMenu() -> void {
 }
 
 auto Presentation::unloadEmulator(bool reloading) -> void {
-  setTitle({ares::Name, " ", ares::Version});
+  setTitle({ares::Name, " ", ares::FullVersion});
   setAssociatedFile();
   if(program.kiosk) return;
   systemMenu.setVisible(false);

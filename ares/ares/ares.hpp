@@ -46,6 +46,8 @@ using namespace nall::primitives;
 namespace ares {
   extern const string Name;
   extern const string Version;
+  extern const string ProfilerVersion;
+  extern const string FullVersion;
   extern const string Copyright;
   extern const string License;
   extern const string LicenseURI;

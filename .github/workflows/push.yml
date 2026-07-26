@@ -30,4 +30,4 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/release.yml
     with:
-      notarize: true
+      notarize: false
