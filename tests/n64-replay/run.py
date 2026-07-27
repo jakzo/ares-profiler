@@ -429,6 +429,8 @@ def run_replay(ares, rom, elf, replay, artifacts):
             "ARES_N64_PROFILE_OUTPUT": str(profile_prefix),
             "ARES_N64_REPLAY": str(replay),
             "ARES_N64_REPLAY_QUIT": "1",
+            "PARALLEL_RDP_FORCE_SYNC_SHADER": "1",
+            "PARALLEL_RDP_SINGLE_THREADED_COMMAND": "1",
             "XDG_CONFIG_HOME": str(runtime_dir / "config"),
             "XDG_DATA_HOME": str(runtime_dir / "data"),
         }
