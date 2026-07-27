@@ -51,7 +51,8 @@ random seeds, makes recorded options authoritative at their getters and
 setters, queues the controller sample consumed by player 1, and replaces the
 `updateFrameCounters` `$a0` argument with each recorded delta. Before replacing
 that argument, the profiler records the live frame delta as
-`dropped frames = max(delta - 1, 0)`. It reports
+`dropped frames = max(delta - 1, 0)` for each completed rendered game frame.
+It reports
 `TEST_COMPLETE` on success and
 `TEST_FAILED` on divergence, premature level exit, or timeout.
 

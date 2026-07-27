@@ -1417,6 +1417,8 @@ struct CPU : Thread {
     bool replayFinished = false;
     bool replayQuit = false;
     bool replayHasFrameSeeds = false;
+    bool droppedFramePending = false;
+    bool gameFrameHasDroppedFrame = false;
     u32 pendingLevelStage = 0;
     u32 pendingLevelReturn = 0;
     u32 pendingCallDelay = 0;
@@ -1436,6 +1438,8 @@ struct CPU : Thread {
     u32 chrObjRandomSeedAddress = 0;
     u8 replayStage = 0;
     u8 replayDifficulty = 0;
+    u8 pendingDroppedFrameBucket = 0;
+    u8 gameFrameDroppedFrameBucket = 0;
     u32 captureStage = 0;
     size_t stageLoadFunction = NoFunction;
     size_t stageUnloadFunction = NoFunction;

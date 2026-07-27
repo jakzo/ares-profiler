@@ -537,6 +537,8 @@ auto CPU::Profiler::resetCapture() -> void {
   tlbCacheMisses = 0;
   tlbMissing = 0;
   for(auto& count : droppedFrameHistogram) count = 0;
+  droppedFramePending = false;
+  gameFrameHasDroppedFrame = false;
   lastFunction = NoFunction;
   frameStartCycle = 0;
   gameFrameStartCycle = 0;
@@ -684,7 +686,8 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   auto inReplayStop = inFunction(replayStopFunction);
 
   if(active && replayActive && exactFunction == updateFrameCountersFunction) {
-    droppedFrameHistogram[droppedFrameBucket(self.ipu.r[4].u64)]++;
+    pendingDroppedFrameBucket = u8(droppedFrameBucket(self.ipu.r[4].u64));
+    droppedFramePending = true;
   }
 
   if(externalReplay && replayRunning && !replayFinished &&
@@ -850,6 +853,8 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   if(inReplayStop) {
     replayActive = false;
     gameFrameActive = false;
+    droppedFramePending = false;
+    gameFrameHasDroppedFrame = false;
   }
   // The JIT can skip the caller's return PC, but it consistently exposes each
   // callee's JR RA. These bracket the same work as the guest-side profiler:
@@ -859,11 +864,18 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
     gameFrameActive = true;
     gameFrameStartCycle = now;
     gameFrameTlbLoads = 0;
+    gameFrameHasDroppedFrame = droppedFramePending;
+    gameFrameDroppedFrameBucket = pendingDroppedFrameBucket;
+    droppedFramePending = false;
   }
   if(gameFrameActive && currentFunction == debugMenuDrawFunction
       && instruction_ == 0x03e0'0008u && now >= gameFrameStartCycle) {
     gameFrames.push_back({gameFrameStartCycle, now, gameFrameTlbLoads});
+    if(gameFrameHasDroppedFrame) {
+      droppedFrameHistogram[gameFrameDroppedFrameBucket]++;
+    }
     gameFrameActive = false;
+    gameFrameHasDroppedFrame = false;
     if(externalReplay && replayRunning) {
       lastReplayFrameAt = std::chrono::steady_clock::now();
       if(replayFrameIndex >= replayFrames.size()) {
