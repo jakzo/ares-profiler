@@ -1374,7 +1374,6 @@ struct CPU : Thread {
       SetAmmo,
       SetScreen,
       SetRatio,
-      JoyConsumeSamples,
       UpdateFrameCounters,
     };
 
@@ -1471,6 +1470,7 @@ struct CPU : Thread {
     u64 tlbMissing = 0;
     u64 gameFrameStartCycle = 0;
     u64 gameFrameTlbLoads = 0;
+    u64 droppedFrameHistogram[9] = {};
     u64 replayInitialRandomSeed = 0;
     u64 replayInitialChrObjRandomSeed = 0;
     size_t replayFrameIndex = 0;

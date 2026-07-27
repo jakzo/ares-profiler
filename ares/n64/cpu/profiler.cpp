@@ -25,6 +25,28 @@ auto symbolName(const std::vector<u8>& data, size_t offset, size_t limit) -> std
   return result;
 }
 
+constexpr const char* DroppedFrameMetrics[] = {
+  "dropped_frames_0",
+  "dropped_frames_1",
+  "dropped_frames_2",
+  "dropped_frames_3",
+  "dropped_frames_4",
+  "dropped_frames_5_6",
+  "dropped_frames_7_8",
+  "dropped_frames_9_10",
+  "dropped_frames_11_plus",
+};
+
+auto droppedFrameBucket(u64 argument) -> size_t {
+  auto deltaFrames = s32(u32(argument));
+  auto droppedFrames = deltaFrames > 1 ? u32(deltaFrames - 1) : 0;
+  if(droppedFrames <= 4) return size_t(droppedFrames);
+  if(droppedFrames <= 6) return 5;
+  if(droppedFrames <= 8) return 6;
+  if(droppedFrames <= 10) return 7;
+  return 8;
+}
+
 }
 
 auto CPU::Profiler::power(bool) -> void {
@@ -168,7 +190,6 @@ auto CPU::Profiler::power(bool) -> void {
   setReplayHook(setAmmoFunction, ReplayHook::SetAmmo);
   setReplayHook(setScreenFunction, ReplayHook::SetScreen);
   setReplayHook(setRatioFunction, ReplayHook::SetRatio);
-  setReplayHook(joyConsumeSamplesFunction, ReplayHook::JoyConsumeSamples);
   setReplayHook(updateFrameCountersFunction, ReplayHook::UpdateFrameCounters);
   if(stageLoadFunction == NoFunction || stageUnloadFunction == NoFunction) {
     std::fprintf(stderr, "ares N64 profiler: ELF is missing lvlStageLoad or lvlUnloadStageTextData\n");
@@ -437,14 +458,17 @@ auto CPU::Profiler::replayQueueInput() -> void {
   if(!replayRunning || replayFinished ||
      replayFrameIndex >= replayFrames.size()) return;
 
-  // Queue exactly one new regular-controller sample before GoldenEye calls
-  // joyConsumeSamples. This mirrors the game's native replay callback and lets
-  // the retail input code derive button transitions and ring state itself.
-  auto current = self.readDebug<Word>(guestAddress(contDataAddress + 0x1e0));
+  // Apply exactly one replay sample after GoldenEye finishes consuming the
+  // asynchronously-polled regular-controller ring. Injecting at the wrapper's
+  // entry races the SI polling thread, which can advance nextlast before
+  // joyConsumeSamples reads it and make gameplay consume a host input instead.
+  auto current = u32(self.readDebug<Word>(guestAddress(contDataAddress + 0x1e0)));
   if(current >= 20) return;
   auto next = (current + 1) % 20;
   auto sample = contDataAddress + next * 24;
+  auto previous = contDataAddress + current * 24;
   auto& expected = replayFrames[replayFrameIndex];
+  auto previousButtons = u16(self.readDebug<Half>(guestAddress(previous)));
   self.writeDebug<Dual>(guestAddress(sample), 0);
   self.writeDebug<Dual>(guestAddress(sample + 8), 0);
   self.writeDebug<Dual>(guestAddress(sample + 16), 0);
@@ -452,7 +476,13 @@ auto CPU::Profiler::replayQueueInput() -> void {
   self.writeDebug<Byte>(guestAddress(sample + 2), u8(expected.stickX));
   self.writeDebug<Byte>(guestAddress(sample + 3), u8(expected.stickY));
   self.writeDebug<Byte>(guestAddress(sample + 4), 0);
+  self.writeDebug<Word>(guestAddress(contDataAddress + 0x1e4), current);
+  self.writeDebug<Word>(guestAddress(contDataAddress + 0x1e0), next);
   self.writeDebug<Word>(guestAddress(contDataAddress + 0x1e8), next);
+  self.writeDebug<Word>(guestAddress(contDataAddress + 0x1ec), current);
+  self.writeDebug<Dual>(guestAddress(contDataAddress + 0x1f0), 0);
+  self.writeDebug<Half>(guestAddress(contDataAddress + 0x1f0),
+                        expected.buttons & ~previousButtons);
 
   replayFrameIndex++;
 }
@@ -506,6 +536,7 @@ auto CPU::Profiler::resetCapture() -> void {
   tlbCacheHits = 0;
   tlbCacheMisses = 0;
   tlbMissing = 0;
+  for(auto& count : droppedFrameHistogram) count = 0;
   lastFunction = NoFunction;
   frameStartCycle = 0;
   gameFrameStartCycle = 0;
@@ -652,6 +683,16 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   auto inReplayStageLoad = inFunction(replayStageLoadFunction);
   auto inReplayStop = inFunction(replayStopFunction);
 
+  if(active && replayActive && exactFunction == updateFrameCountersFunction) {
+    droppedFrameHistogram[droppedFrameBucket(self.ipu.r[4].u64)]++;
+  }
+
+  if(externalReplay && replayRunning && !replayFinished &&
+     currentFunction == joyConsumeSamplesFunction &&
+     instruction_ == 0x03e0'0008u) {
+    replayQueueInput();
+  }
+
   if(externalReplay && !replayFinished) {
     if(pendingReplayOptionReturn && address == pendingReplayOptionReturn) {
       self.ipu.r[2].u64 = pendingReplayOptionValue;
@@ -748,9 +789,6 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
           break;
         case ReplayHook::SetRatio:
           self.ipu.r[4].u64 = (options & 0x0080) != 0;
-          break;
-        case ReplayHook::JoyConsumeSamples:
-          replayQueueInput();
           break;
         case ReplayHook::UpdateFrameCounters:
           if(replayRunning) {
@@ -961,6 +999,9 @@ auto CPU::Profiler::writeCapture() -> void {
            << "tlb_cache_hits," << tlbCacheHits << "\n"
            << "tlb_cache_misses," << tlbCacheMisses << "\n"
            << "tlb_missing," << tlbMissing << "\n";
+    for(size_t index = 0; index < std::size(DroppedFrameMetrics); index++) {
+      output << DroppedFrameMetrics[index] << ',' << droppedFrameHistogram[index] << "\n";
+    }
   }
 
   {

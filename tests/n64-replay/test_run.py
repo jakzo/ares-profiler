@@ -31,6 +31,15 @@ average_frame_delta,250
 tlb_cache_hits,3
 tlb_cache_misses,1
 tlb_missing,1
+dropped_frames_0,1
+dropped_frames_1,1
+dropped_frames_2,0
+dropped_frames_3,0
+dropped_frames_4,0
+dropped_frames_5_6,0
+dropped_frames_7_8,0
+dropped_frames_9_10,0
+dropped_frames_11_plus,0
 """,
         )
         self.write(
@@ -102,6 +111,15 @@ average_frame_delta,250
 tlb_cache_hits,3
 tlb_cache_misses,1
 tlb_missing,1
+dropped_frames_0,1
+dropped_frames_1,1
+dropped_frames_2,0
+dropped_frames_3,0
+dropped_frames_4,0
+dropped_frames_5_6,0
+dropped_frames_7_8,0
+dropped_frames_9_10,0
+dropped_frames_11_plus,0
 """,
                 "invalid profiler semantic version",
             ),

@@ -36,6 +36,17 @@ SEMVER_PATTERN = re.compile(
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
+DROPPED_FRAME_METRICS = (
+    "dropped_frames_0",
+    "dropped_frames_1",
+    "dropped_frames_2",
+    "dropped_frames_3",
+    "dropped_frames_4",
+    "dropped_frames_5_6",
+    "dropped_frames_7_8",
+    "dropped_frames_9_10",
+    "dropped_frames_11_plus",
+)
 PROFILE_SUFFIXES = (
     "-summary.csv",
     "-functions.csv",
@@ -230,6 +241,7 @@ def verify_profiles(prefix, expected_game_frames):
         "tlb_cache_hits",
         "tlb_cache_misses",
         "tlb_missing",
+        *DROPPED_FRAME_METRICS,
     }
     expected_version_metrics = {"ares_version", "profiler_version"}
     summary = {}
@@ -402,6 +414,12 @@ def verify_profiles(prefix, expected_game_frames):
         ):
             if summary[metric] != tlb_totals[field]:
                 errors.append(f"summary {metric} does not match TLB profile")
+        if sum(summary[metric] for metric in DROPPED_FRAME_METRICS) != len(
+            game_frame_rows
+        ):
+            errors.append(
+                "summary dropped-frame histogram does not match game frame profile"
+            )
     return errors
 
 

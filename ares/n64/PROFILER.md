@@ -22,7 +22,8 @@ Capturing starts after a non-title `lvlStageLoad` returns and stops when
 `lvlUnloadStageTextData` begins. Returning to the title and loading another
 stage therefore creates another numbered capture. Each capture writes:
 
-- `*-summary.csv`: total CPU cycles, frame count/average delta, and TLB totals.
+- `*-summary.csv`: total CPU cycles, frame count/average delta, TLB totals,
+  and a histogram of 0, 1, 2, 3, 4, 5-6, 7-8, 9-10, and 11+ dropped frames.
 - `*-functions.csv`: call counts plus self and inclusive guest CPU cycles.
 - `*-tlb.csv`: per-8 KiB virtual-page access and TLB-cache hit/miss counts.
 - `*-frames.csv`: VI frame start, stop, and delta cycles.
@@ -48,7 +49,9 @@ ARES_N64_REPLAY_QUIT=1 \
 The emulator selects the recorded stage and difficulty, restores the initial
 random seeds, makes recorded options authoritative at their getters and
 setters, queues the controller sample consumed by player 1, and replaces the
-`updateFrameCounters` `$a0` argument with each recorded delta. It reports
+`updateFrameCounters` `$a0` argument with each recorded delta. Before replacing
+that argument, the profiler records the live frame delta as
+`dropped frames = max(delta - 1, 0)`. It reports
 `TEST_COMPLETE` on success and
 `TEST_FAILED` on divergence, premature level exit, or timeout.
 
