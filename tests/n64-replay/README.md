@@ -9,7 +9,7 @@ summary, function, TLB, video-frame, game-frame, and folded-stack profiles are
 parsed and checked for valid headers, numeric data, consistent totals, and the
 expected number of replay frames. The summary also records the upstream ares
 version and validates the independent profiler version as semantic versioning.
-The runner stops a hung process if it goes 20
+The runner stops a hung process if it goes 30
 seconds without `REPLAY_STARTED` or a `REPLAY_STATUS` heartbeat from ares.
 
 Run every bundled US replay:

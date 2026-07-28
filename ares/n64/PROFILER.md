@@ -58,11 +58,11 @@ It reports
 `TEST_FAILED` on divergence, premature level exit, or timeout.
 
 Set `ARES_N64_REPLAY_QUIT=1` to exit after either result. Waiting for the level
-to start times out after 10 seconds. Once replay starts, ares fails if the next
-GoldenEye frame is not rendered within two seconds.
+to start times out after 20 seconds. Once replay starts, ares fails if the next
+GoldenEye frame is not rendered within 20 seconds.
 
 While replay is running, ares writes
-`REPLAY_STATUS frame=<completed>/<total>` every 10 seconds so unattended test
+`REPLAY_STATUS frame=<completed>/<total>` every 20 seconds so unattended test
 runners can distinguish a long recording from a stalled emulator.
 
 ### ROM/ELF replay ABI

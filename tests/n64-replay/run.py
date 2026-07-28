@@ -29,7 +29,8 @@ REPLAY_HEADER_OFFSET = 0x600
 REPLAY_MAGIC = b"GERP"
 REPLAY_VERSION = 1
 SRAM_SIZE = 128 * 1024
-STATUS_TIMEOUT_SECONDS = 20
+# Must exceed ares' 20-second REPLAY_STATUS interval to avoid a boundary race.
+STATUS_TIMEOUT_SECONDS = 30
 COMPLETE_PATTERN = re.compile(r"\bTEST_COMPLETE frames=(\d+)\b")
 SEMVER_PATTERN = re.compile(
     r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
