@@ -23,7 +23,8 @@ Capturing starts after a non-title `lvlStageLoad` returns and stops when
 stage therefore creates another numbered capture. Each capture writes:
 
 - `*-summary.csv`: total CPU cycles, frame count/average delta, TLB totals,
-  and a histogram of 0, 1, 2, 3, 4, 5-6, 7-8, 9-10, and 11+ dropped frames.
+  a histogram of 0, 1, 2, 3, 4, 5-6, 7-8, 9-10, and 11+ dropped frames,
+  and per-pool peak live memory usage and capacity.
 - `*-functions.csv`: call counts plus self and inclusive guest CPU cycles.
 - `*-tlb.csv`: per-8 KiB virtual-page access and TLB-cache hit/miss counts.
 - `*-frames.csv`: VI frame start, stop, and delta cycles.
@@ -84,6 +85,7 @@ Required object symbols:
 | `g_ContData` | `struct contdata[2]` | Queues recorded controller samples. |
 | `g_randomSeed` | `u64` | Restores and verifies the gameplay RNG. |
 | `g_chrObjRandomSeed` | `u64` | Restores and verifies the character/object RNG. |
+| `g_mempPools` | `MemoryPool[7]` | Samples per-level pool usage and capacity. |
 
 Required function symbols and signatures:
 

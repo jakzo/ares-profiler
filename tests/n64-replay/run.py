@@ -47,6 +47,12 @@ DROPPED_FRAME_METRICS = (
     "dropped_frames_9_10",
     "dropped_frames_11_plus",
 )
+MEMORY_POOL_NAMES = ("mf", "pool2", "ml", "stage", "me", "permanent")
+MEMORY_POOL_METRICS = tuple(
+    f"memory_pool_{pool}_{field}_bytes"
+    for pool in MEMORY_POOL_NAMES
+    for field in ("peak", "capacity")
+)
 PROFILE_SUFFIXES = (
     "-summary.csv",
     "-functions.csv",
@@ -242,6 +248,7 @@ def verify_profiles(prefix, expected_game_frames):
         "tlb_cache_misses",
         "tlb_missing",
         *DROPPED_FRAME_METRICS,
+        *MEMORY_POOL_METRICS,
     }
     expected_version_metrics = {"ares_version", "profiler_version"}
     summary = {}
@@ -420,6 +427,11 @@ def verify_profiles(prefix, expected_game_frames):
             errors.append(
                 "summary dropped-frame histogram does not match game frame profile"
             )
+        for pool in MEMORY_POOL_NAMES:
+            peak = summary[f"memory_pool_{pool}_peak_bytes"]
+            capacity = summary[f"memory_pool_{pool}_capacity_bytes"]
+            if peak < 0 or capacity < 0 or peak > capacity:
+                errors.append(f"summary {pool} memory pool usage is invalid")
     return errors
 
 
@@ -447,8 +459,6 @@ def run_replay(ares, rom, elf, replay, artifacts):
             "ARES_N64_PROFILE_OUTPUT": str(profile_prefix),
             "ARES_N64_REPLAY": str(replay),
             "ARES_N64_REPLAY_QUIT": "1",
-            "PARALLEL_RDP_FORCE_SYNC_SHADER": "1",
-            "PARALLEL_RDP_SINGLE_THREADED_COMMAND": "1",
             "XDG_CONFIG_HOME": str(runtime_dir / "config"),
             "XDG_DATA_HOME": str(runtime_dir / "data"),
         }

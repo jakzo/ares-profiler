@@ -1385,6 +1385,7 @@ struct CPU : Thread {
     auto startReplay(u64 now) -> void;
     auto replayTick(u64 now) -> void;
     auto replayQueueInput() -> void;
+    auto sampleMemoryPools() -> void;
     auto failReplay(const std::string& reason, u64 now) -> void;
     auto completeReplay(u64 now) -> void;
     static auto guestAddress(u32 address) -> u64;
@@ -1436,6 +1437,7 @@ struct CPU : Thread {
     u32 contDataAddress = 0;
     u32 randomSeedAddress = 0;
     u32 chrObjRandomSeedAddress = 0;
+    u32 mempPoolsAddress = 0;
     u8 replayStage = 0;
     u8 replayDifficulty = 0;
     u8 pendingDroppedFrameBucket = 0;
@@ -1475,6 +1477,8 @@ struct CPU : Thread {
     u64 gameFrameStartCycle = 0;
     u64 gameFrameTlbLoads = 0;
     u64 droppedFrameHistogram[9] = {};
+    u64 memoryPoolPeakBytes[6] = {};
+    u64 memoryPoolCapacityBytes[6] = {};
     u64 replayInitialRandomSeed = 0;
     u64 replayInitialChrObjRandomSeed = 0;
     size_t replayFrameIndex = 0;

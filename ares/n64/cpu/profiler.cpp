@@ -37,6 +37,15 @@ constexpr const char* DroppedFrameMetrics[] = {
   "dropped_frames_11_plus",
 };
 
+constexpr const char* MemoryPoolNames[] = {
+  "mf",
+  "pool2",
+  "ml",
+  "stage",
+  "me",
+  "permanent",
+};
+
 auto droppedFrameBucket(u64 argument) -> size_t {
   auto deltaFrames = s32(u32(argument));
   auto droppedFrames = deltaFrames > 1 ? u32(deltaFrames - 1) : 0;
@@ -204,6 +213,7 @@ auto CPU::Profiler::power(bool) -> void {
     contDataAddress = objectAddress("g_ContData");
     randomSeedAddress = objectAddress("g_randomSeed");
     chrObjRandomSeedAddress = objectAddress("g_chrObjRandomSeed");
+    mempPoolsAddress = objectAddress("g_mempPools");
     if(bossMainloopFunction == NoFunction ||
        masterDisplayListFunction == NoFunction ||
        debugMenuDrawFunction == NoFunction ||
@@ -213,7 +223,7 @@ auto CPU::Profiler::power(bool) -> void {
        optionGetterCount != 8 ||
        !stageNumAddress || !selectedDifficultyAddress ||
        !levelDifficultyAddress || !currentPlayerAddress || !contDataAddress ||
-       !randomSeedAddress || !chrObjRandomSeedAddress) {
+       !randomSeedAddress || !chrObjRandomSeedAddress || !mempPoolsAddress) {
       std::fprintf(stderr, "TEST_FAILED ELF is missing required GoldenEye replay symbols\n");
       if(replayQuit) requestShutdown();
       return;
@@ -520,6 +530,25 @@ auto CPU::Profiler::cycles() const -> u64 {
   return u64(self.profile.cpuCycles) + pending;
 }
 
+auto CPU::Profiler::sampleMemoryPools() -> void {
+  static constexpr u32 MemoryPoolSize = 16;
+  static constexpr u32 FirstReportedPool = 1;
+  for(size_t index = 0; index < std::size(MemoryPoolNames); index++) {
+    auto address =
+      mempPoolsAddress + (u32(index) + FirstReportedPool) * MemoryPoolSize;
+    auto start = u32(self.readDebug<Word>(guestAddress(address)));
+    auto position = u32(self.readDebug<Word>(guestAddress(address + 4)));
+    auto end = u32(self.readDebug<Word>(guestAddress(address + 8)));
+    if(end < start) continue;
+    auto capacity = u64(end - start);
+    memoryPoolCapacityBytes[index] =
+      std::max(memoryPoolCapacityBytes[index], capacity);
+    if(!position || position < start || position > end) continue;
+    memoryPoolPeakBytes[index] =
+      std::max(memoryPoolPeakBytes[index], u64(position - start));
+  }
+}
+
 auto CPU::Profiler::resetCapture() -> void {
   for(auto& function : functions) {
     function.calls = 0;
@@ -537,6 +566,8 @@ auto CPU::Profiler::resetCapture() -> void {
   tlbCacheMisses = 0;
   tlbMissing = 0;
   for(auto& count : droppedFrameHistogram) count = 0;
+  for(auto& peak : memoryPoolPeakBytes) peak = 0;
+  for(auto& capacity : memoryPoolCapacityBytes) capacity = 0;
   droppedFramePending = false;
   gameFrameHasDroppedFrame = false;
   lastFunction = NoFunction;
@@ -870,6 +901,7 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   }
   if(gameFrameActive && currentFunction == debugMenuDrawFunction
       && instruction_ == 0x03e0'0008u && now >= gameFrameStartCycle) {
+    sampleMemoryPools();
     gameFrames.push_back({gameFrameStartCycle, now, gameFrameTlbLoads});
     if(gameFrameHasDroppedFrame) {
       droppedFrameHistogram[gameFrameDroppedFrameBucket]++;
@@ -1013,6 +1045,12 @@ auto CPU::Profiler::writeCapture() -> void {
            << "tlb_missing," << tlbMissing << "\n";
     for(size_t index = 0; index < std::size(DroppedFrameMetrics); index++) {
       output << DroppedFrameMetrics[index] << ',' << droppedFrameHistogram[index] << "\n";
+    }
+    for(size_t index = 0; index < std::size(MemoryPoolNames); index++) {
+      output << "memory_pool_" << MemoryPoolNames[index] << "_peak_bytes,"
+             << memoryPoolPeakBytes[index] << "\n"
+             << "memory_pool_" << MemoryPoolNames[index] << "_capacity_bytes,"
+             << memoryPoolCapacityBytes[index] << "\n";
     }
   }
 

@@ -40,6 +40,18 @@ dropped_frames_5_6,0
 dropped_frames_7_8,0
 dropped_frames_9_10,0
 dropped_frames_11_plus,0
+memory_pool_mf_peak_bytes,0
+memory_pool_mf_capacity_bytes,0
+memory_pool_pool2_peak_bytes,0
+memory_pool_pool2_capacity_bytes,0
+memory_pool_ml_peak_bytes,0
+memory_pool_ml_capacity_bytes,0
+memory_pool_stage_peak_bytes,500
+memory_pool_stage_capacity_bytes,800
+memory_pool_me_peak_bytes,0
+memory_pool_me_capacity_bytes,0
+memory_pool_permanent_peak_bytes,200
+memory_pool_permanent_capacity_bytes,300
 """,
         )
         self.write(
@@ -120,6 +132,18 @@ dropped_frames_5_6,0
 dropped_frames_7_8,0
 dropped_frames_9_10,0
 dropped_frames_11_plus,0
+memory_pool_mf_peak_bytes,0
+memory_pool_mf_capacity_bytes,0
+memory_pool_pool2_peak_bytes,0
+memory_pool_pool2_capacity_bytes,0
+memory_pool_ml_peak_bytes,0
+memory_pool_ml_capacity_bytes,0
+memory_pool_stage_peak_bytes,500
+memory_pool_stage_capacity_bytes,800
+memory_pool_me_peak_bytes,0
+memory_pool_me_capacity_bytes,0
+memory_pool_permanent_peak_bytes,200
+memory_pool_permanent_capacity_bytes,300
 """,
                 "invalid profiler semantic version",
             ),
