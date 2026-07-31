@@ -258,7 +258,10 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
   std::ifstream input(path, std::ios::binary);
   if(!input) return false;
   std::vector<u8> data((std::istreambuf_iterator<char>(input)), {});
-  if(data.size() < ReplayOffset + 48 || !cartridge.eeprom.size) return false;
+  auto* saveMemory = cartridge.ram ? &cartridge.ram
+                   : cartridge.eeprom ? &cartridge.eeprom
+                   : nullptr;
+  if(data.size() < ReplayOffset + 48 || !saveMemory) return false;
   auto base = ReplayOffset;
   if(readBigEndian32(data, base) != ReplayMagic ||
      readBigEndian16(data, base + 4) != ReplayVersion) return false;
@@ -307,11 +310,10 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
   }
 
   if(replayFrames.size() != frameCount) return false;
-  // The recorder maps GoldenEye's save I/O below the replay data in SRAM.
-  // Restore it as EEPROM so the game initializes options through its normal path.
-  auto saveSize = std::min<size_t>(cartridge.eeprom.size, ReplayOffset);
+  // Restore the save image to the device selected by the ROM metadata.
+  auto saveSize = std::min<size_t>(saveMemory->size, ReplayOffset);
   for(size_t address = 0; address < saveSize; address++) {
-    cartridge.eeprom.write<Byte>(address, data[address]);
+    saveMemory->write<Byte>(address, data[address]);
   }
   std::fprintf(stderr,
     "ares N64 replay: loaded %zu frames for stage %u from %s\n",

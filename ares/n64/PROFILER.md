@@ -106,10 +106,11 @@ The controller guest layout used by replay is also ABI:
   `0x1e0`, `nextlast` at `0x1e8`, and `playbackcontcount` at `0x1f8`.
 
 The replay fixture's bytes before its `0x600` replay-data offset contain the
-save image captured by the recorder. Ares restores the cartridge's EEPROM from
-this image before the game boots, allowing GoldenEye to initialize controller
-and gameplay options through its normal save-loading path. Later option changes
-are reproduced by the recorded controller input.
+save image captured by the recorder. Ares restores the cartridge's SRAM or
+EEPROM, as selected by the ROM metadata, from this image before the game boots.
+This allows GoldenEye to initialize controller and gameplay options through its
+normal save-loading path. Later option changes are reproduced by the recorded
+controller input.
 
 The following difficulty setter symbols are optional compatibility hooks. When
 present, ares overrides their first argument:
