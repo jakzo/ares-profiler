@@ -81,7 +81,6 @@ Required object symbols:
 | `g_StageNum` | `s32` | Selects the recorded stage. |
 | `selected_difficulty` | `DIFFICULTY` (32-bit enum) | Sets front-end difficulty state. |
 | `g_SelectedDifficulty` | `s32` | Sets live level and AI difficulty before stage load. |
-| `g_CurrentPlayer` | `struct player *` | Applies the recorded single-player control style. |
 | `g_ContData` | `struct contdata[2]` | Queues recorded controller samples. |
 | `g_randomSeed` | `u64` | Restores and verifies the gameplay RNG. |
 | `g_chrObjRandomSeed` | `u64` | Restores and verifies the character/object RNG. |
@@ -98,42 +97,26 @@ void joyConsumeSamplesWrapper(void);
 
 Gfx *dynGetMasterDisplayList(void);
 Gfx *debmenuDraw(Gfx *gdl);
-
-int cur_player_get_control_type(void);
-u32 get_cur_player_look_vertical_inverted(void);
-s32 cur_player_get_autoaim(void);
-u32 cur_player_get_aim_control(void);
-u32 cur_player_get_sight_onscreen_control(void);
-u32 cur_player_get_lookahead(void);
-u32 cur_player_get_ammo_onscreen_setting(void);
-u32 cur_player_get_screen_setting(void);
-SCREEN_RATIO_OPTION get_screen_ratio(void);
 ```
 
-The two guest layouts used by replay are also ABI:
+The controller guest layout used by replay is also ABI:
 
 - `g_ContData[0]` must be the regular controller ring. `struct contsample`
   remains 24 bytes; the 20 samples begin at offset zero, `curlast` remains at
   `0x1e0`, `nextlast` at `0x1e8`, and `playbackcontcount` at `0x1f8`.
-- `g_CurrentPlayer` points to `struct player`; the two `s32` control-style
-  fields remain at offsets `0x2a58` and `0x2a5c`.
 
-The following setter symbols are optional compatibility hooks. When present,
-ares overrides their first argument, but replay correctness does not depend on
-them because the required globals and getters are authoritative:
+The replay fixture's bytes before its `0x600` replay-data offset contain the
+save image captured by the recorder. Ares restores the cartridge's EEPROM from
+this image before the game boots, allowing GoldenEye to initialize controller
+and gameplay options through its normal save-loading path. Later option changes
+are reproduced by the recorded controller input.
+
+The following difficulty setter symbols are optional compatibility hooks. When
+present, ares overrides their first argument:
 
 ```c
 set_selected_difficulty
 lvlSetSelectedDifficulty
-cur_player_set_control_type
-set_cur_player_look_vertical_inverted
-cur_player_set_autoaim
-cur_player_set_aim_control
-cur_player_set_sight_onscreen_control
-cur_player_set_lookahead
-cur_player_set_ammo_onscreen_setting
-cur_player_set_screen_setting
-set_screen_ratio
 ```
 
 `tlbmanageTranslateLoadRomFromTlbAddress` is optional and enables per-game-frame

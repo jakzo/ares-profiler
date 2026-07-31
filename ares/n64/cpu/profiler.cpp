@@ -90,18 +90,8 @@ auto CPU::Profiler::power(bool) -> void {
   bossMainloopFunction = NoFunction;
   updateFrameCountersFunction = NoFunction;
   joyConsumeSamplesFunction = NoFunction;
-  getControlTypeFunction = NoFunction;
   setSelectedDifficultyFunction = NoFunction;
   lvlSetSelectedDifficultyFunction = NoFunction;
-  setControlTypeFunction = NoFunction;
-  setInvertLookFunction = NoFunction;
-  setAutoAimFunction = NoFunction;
-  setAimControlFunction = NoFunction;
-  setSightFunction = NoFunction;
-  setLookAheadFunction = NoFunction;
-  setAmmoFunction = NoFunction;
-  setScreenFunction = NoFunction;
-  setRatioFunction = NoFunction;
 
   auto symbols = std::getenv("ARES_N64_PROFILE_SYMBOLS");
   if(!symbols || !*symbols) return;
@@ -124,7 +114,6 @@ auto CPU::Profiler::power(bool) -> void {
   }
 
   replayHooks.resize(functions.size(), ReplayHook::None);
-  size_t optionGetterCount = 0;
   for(size_t index = 0; index < functions.size(); index++) {
     if(functions[index].name == "lvlStageLoad") stageLoadFunction = index;
     if(functions[index].name == "lvlUnloadStageTextData") stageUnloadFunction = index;
@@ -136,50 +125,8 @@ auto CPU::Profiler::power(bool) -> void {
     if(functions[index].name == "bossMainloop") bossMainloopFunction = index;
     if(functions[index].name == "updateFrameCounters") updateFrameCountersFunction = index;
     if(functions[index].name == "joyConsumeSamplesWrapper") joyConsumeSamplesFunction = index;
-    if(functions[index].name == "cur_player_get_control_type") getControlTypeFunction = index;
-    if(functions[index].name == "get_cur_player_look_vertical_inverted") {
-      replayHooks[index] = ReplayHook::GetInvertLook;
-      optionGetterCount++;
-    }
-    if(functions[index].name == "cur_player_get_autoaim") {
-      replayHooks[index] = ReplayHook::GetAutoAim;
-      optionGetterCount++;
-    }
-    if(functions[index].name == "cur_player_get_aim_control") {
-      replayHooks[index] = ReplayHook::GetAimControl;
-      optionGetterCount++;
-    }
-    if(functions[index].name == "cur_player_get_sight_onscreen_control") {
-      replayHooks[index] = ReplayHook::GetSight;
-      optionGetterCount++;
-    }
-    if(functions[index].name == "cur_player_get_lookahead") {
-      replayHooks[index] = ReplayHook::GetLookAhead;
-      optionGetterCount++;
-    }
-    if(functions[index].name == "cur_player_get_ammo_onscreen_setting") {
-      replayHooks[index] = ReplayHook::GetAmmo;
-      optionGetterCount++;
-    }
-    if(functions[index].name == "cur_player_get_screen_setting") {
-      replayHooks[index] = ReplayHook::GetScreen;
-      optionGetterCount++;
-    }
-    if(functions[index].name == "get_screen_ratio") {
-      replayHooks[index] = ReplayHook::GetRatio;
-      optionGetterCount++;
-    }
     if(functions[index].name == "set_selected_difficulty") setSelectedDifficultyFunction = index;
     if(functions[index].name == "lvlSetSelectedDifficulty") lvlSetSelectedDifficultyFunction = index;
-    if(functions[index].name == "cur_player_set_control_type") setControlTypeFunction = index;
-    if(functions[index].name == "set_cur_player_look_vertical_inverted") setInvertLookFunction = index;
-    if(functions[index].name == "cur_player_set_autoaim") setAutoAimFunction = index;
-    if(functions[index].name == "cur_player_set_aim_control") setAimControlFunction = index;
-    if(functions[index].name == "cur_player_set_sight_onscreen_control") setSightFunction = index;
-    if(functions[index].name == "cur_player_set_lookahead") setLookAheadFunction = index;
-    if(functions[index].name == "cur_player_set_ammo_onscreen_setting") setAmmoFunction = index;
-    if(functions[index].name == "cur_player_set_screen_setting") setScreenFunction = index;
-    if(functions[index].name == "set_screen_ratio") setRatioFunction = index;
   }
 
   auto setReplayHook = [&](size_t function, ReplayHook hook) {
@@ -189,16 +136,6 @@ auto CPU::Profiler::power(bool) -> void {
   setReplayHook(stageLoadFunction, ReplayHook::StageLoad);
   setReplayHook(setSelectedDifficultyFunction, ReplayHook::Difficulty);
   setReplayHook(lvlSetSelectedDifficultyFunction, ReplayHook::Difficulty);
-  setReplayHook(getControlTypeFunction, ReplayHook::GetControlType);
-  setReplayHook(setControlTypeFunction, ReplayHook::SetControlType);
-  setReplayHook(setInvertLookFunction, ReplayHook::SetInvertLook);
-  setReplayHook(setAutoAimFunction, ReplayHook::SetAutoAim);
-  setReplayHook(setAimControlFunction, ReplayHook::SetAimControl);
-  setReplayHook(setSightFunction, ReplayHook::SetSight);
-  setReplayHook(setLookAheadFunction, ReplayHook::SetLookAhead);
-  setReplayHook(setAmmoFunction, ReplayHook::SetAmmo);
-  setReplayHook(setScreenFunction, ReplayHook::SetScreen);
-  setReplayHook(setRatioFunction, ReplayHook::SetRatio);
   setReplayHook(updateFrameCountersFunction, ReplayHook::UpdateFrameCounters);
   if(stageLoadFunction == NoFunction || stageUnloadFunction == NoFunction) {
     std::fprintf(stderr, "ares N64 profiler: ELF is missing lvlStageLoad or lvlUnloadStageTextData\n");
@@ -209,7 +146,6 @@ auto CPU::Profiler::power(bool) -> void {
     stageNumAddress = objectAddress("g_StageNum");
     selectedDifficultyAddress = objectAddress("selected_difficulty");
     levelDifficultyAddress = objectAddress("g_SelectedDifficulty");
-    currentPlayerAddress = objectAddress("g_CurrentPlayer");
     contDataAddress = objectAddress("g_ContData");
     randomSeedAddress = objectAddress("g_randomSeed");
     chrObjRandomSeedAddress = objectAddress("g_chrObjRandomSeed");
@@ -219,10 +155,8 @@ auto CPU::Profiler::power(bool) -> void {
        debugMenuDrawFunction == NoFunction ||
        updateFrameCountersFunction == NoFunction ||
        joyConsumeSamplesFunction == NoFunction ||
-       getControlTypeFunction == NoFunction ||
-       optionGetterCount != 8 ||
        !stageNumAddress || !selectedDifficultyAddress ||
-       !levelDifficultyAddress || !currentPlayerAddress || !contDataAddress ||
+       !levelDifficultyAddress || !contDataAddress ||
        !randomSeedAddress || !chrObjRandomSeedAddress || !mempPoolsAddress) {
       std::fprintf(stderr, "TEST_FAILED ELF is missing required GoldenEye replay symbols\n");
       if(replayQuit) requestShutdown();
@@ -316,7 +250,7 @@ auto CPU::Profiler::guestAddress(u32 address) -> u64 {
 }
 
 auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
-  static constexpr size_t SramOffset = 0x600;
+  static constexpr size_t ReplayOffset = 0x600;
   static constexpr u32 ReplayMagic = 0x47455250;
   static constexpr u16 ReplayVersion = 1;
   static constexpr u8 FrameSeeds = 1;
@@ -324,8 +258,8 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
   std::ifstream input(path, std::ios::binary);
   if(!input) return false;
   std::vector<u8> data((std::istreambuf_iterator<char>(input)), {});
-  if(data.size() < SramOffset + 48) return false;
-  auto base = SramOffset;
+  if(data.size() < ReplayOffset + 48 || !cartridge.eeprom.size) return false;
+  auto base = ReplayOffset;
   if(readBigEndian32(data, base) != ReplayMagic ||
      readBigEndian16(data, base + 4) != ReplayVersion) return false;
 
@@ -373,6 +307,12 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
   }
 
   if(replayFrames.size() != frameCount) return false;
+  // The recorder maps GoldenEye's save I/O below the replay data in SRAM.
+  // Restore it as EEPROM so the game initializes options through its normal path.
+  auto saveSize = std::min<size_t>(cartridge.eeprom.size, ReplayOffset);
+  for(size_t address = 0; address < saveSize; address++) {
+    cartridge.eeprom.write<Byte>(address, data[address]);
+  }
   std::fprintf(stderr,
     "ares N64 replay: loaded %zu frames for stage %u from %s\n",
     replayFrames.size(), replayStage, path.c_str());
@@ -384,20 +324,8 @@ auto CPU::Profiler::startReplay(u64 now) -> void {
   replayRunning = true;
   replayActive = true;
   replayFrameIndex = 0;
-  auto& first = replayFrames.front();
   lastReplayFrameAt = std::chrono::steady_clock::now();
   lastReplayStatusAt = lastReplayFrameAt;
-
-  // A clean single-player ROM may not call the control-type setter because
-  // no save profile was loaded. Apply the recorded scheme to the live player
-  // selected through its ELF symbol. These player field offsets are shared
-  // by the retail US, JP and EU layouts.
-  auto player = self.readDebug<Word>(guestAddress(currentPlayerAddress));
-  if(player) {
-    auto controlType = u32(first.options >> 8 & 7);
-    self.writeDebug<Word>(guestAddress(player + 0x2a58), controlType);
-    self.writeDebug<Word>(guestAddress(player + 0x2a5c), controlType);
-  }
 
   // The regular controller ring normally has a negative playback controller
   // count and therefore depends on a physically connected controller. External
@@ -577,7 +505,6 @@ auto CPU::Profiler::resetCapture() -> void {
   gameFrameActive = false;
   replayActive = replayRequested;
   pendingReplayStartReturn = 0;
-  pendingReplayOptionReturn = 0;
   pendingCall = false;
 }
 
@@ -728,15 +655,9 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   }
 
   if(externalReplay && !replayFinished) {
-    if(pendingReplayOptionReturn && address == pendingReplayOptionReturn) {
-      self.ipu.r[2].u64 = pendingReplayOptionValue;
-      pendingReplayOptionReturn = 0;
-    }
     if(exactFunction != NoFunction) {
       auto hook = replayHooks[exactFunction];
       if(hook != ReplayHook::None) {
-        auto options = replayFrames.empty() ? 0 : replayFrames[
-          std::min(replayFrameIndex, replayFrames.size() - 1)].options;
         switch(hook) {
         case ReplayHook::BossMainloop:
           self.writeDebug<Word>(guestAddress(stageNumAddress), replayStage);
@@ -758,71 +679,6 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
           break;
         case ReplayHook::Difficulty:
           self.ipu.r[4].u64 = replayDifficulty;
-          break;
-        case ReplayHook::GetControlType:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = options >> 8 & 7;
-          break;
-        case ReplayHook::GetInvertLook:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = (options & 0x0001) != 0;
-          break;
-        case ReplayHook::GetAutoAim:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = (options & 0x0002) != 0;
-          break;
-        case ReplayHook::GetAimControl:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = (options & 0x0004) != 0;
-          break;
-        case ReplayHook::GetSight:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = (options & 0x0008) != 0;
-          break;
-        case ReplayHook::GetLookAhead:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = (options & 0x0010) != 0;
-          break;
-        case ReplayHook::GetAmmo:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = (options & 0x0020) != 0;
-          break;
-        case ReplayHook::GetScreen:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue =
-            options & 0x0800 ? 2 : options & 0x0040 ? 1 : 0;
-          break;
-        case ReplayHook::GetRatio:
-          pendingReplayOptionReturn = u32(self.ipu.r[31].u64);
-          pendingReplayOptionValue = (options & 0x0080) != 0;
-          break;
-        case ReplayHook::SetControlType:
-          self.ipu.r[4].u64 = options >> 8 & 7;
-          break;
-        case ReplayHook::SetInvertLook:
-          self.ipu.r[4].u64 = (options & 0x0001) != 0;
-          break;
-        case ReplayHook::SetAutoAim:
-          self.ipu.r[4].u64 = (options & 0x0002) != 0;
-          break;
-        case ReplayHook::SetAimControl:
-          self.ipu.r[4].u64 = (options & 0x0004) != 0;
-          break;
-        case ReplayHook::SetSight:
-          self.ipu.r[4].u64 = (options & 0x0008) != 0;
-          break;
-        case ReplayHook::SetLookAhead:
-          self.ipu.r[4].u64 = (options & 0x0010) != 0;
-          break;
-        case ReplayHook::SetAmmo:
-          self.ipu.r[4].u64 = (options & 0x0020) != 0;
-          break;
-        case ReplayHook::SetScreen:
-          self.ipu.r[4].u64 =
-            options & 0x0800 ? 2 : options & 0x0040 ? 1 : 0;
-          break;
-        case ReplayHook::SetRatio:
-          self.ipu.r[4].u64 = (options & 0x0080) != 0;
           break;
         case ReplayHook::UpdateFrameCounters:
           if(replayRunning) {

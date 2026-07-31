@@ -1356,24 +1356,6 @@ struct CPU : Thread {
       BossMainloop,
       StageLoad,
       Difficulty,
-      GetControlType,
-      GetInvertLook,
-      GetAutoAim,
-      GetAimControl,
-      GetSight,
-      GetLookAhead,
-      GetAmmo,
-      GetScreen,
-      GetRatio,
-      SetControlType,
-      SetInvertLook,
-      SetAutoAim,
-      SetAimControl,
-      SetSight,
-      SetLookAhead,
-      SetAmmo,
-      SetScreen,
-      SetRatio,
       UpdateFrameCounters,
     };
 
@@ -1426,14 +1408,11 @@ struct CPU : Thread {
     u32 pendingCallTarget = 0;
     u32 pendingCallReturn = 0;
     u32 pendingReplayStartReturn = 0;
-    u32 pendingReplayOptionReturn = 0;
-    u32 pendingReplayOptionValue = 0;
     u32 captureSequence = 0;
     u32 replayDuration = 0;
     u32 stageNumAddress = 0;
     u32 selectedDifficultyAddress = 0;
     u32 levelDifficultyAddress = 0;
-    u32 currentPlayerAddress = 0;
     u32 contDataAddress = 0;
     u32 randomSeedAddress = 0;
     u32 chrObjRandomSeedAddress = 0;
@@ -1453,18 +1432,8 @@ struct CPU : Thread {
     size_t bossMainloopFunction = NoFunction;
     size_t updateFrameCountersFunction = NoFunction;
     size_t joyConsumeSamplesFunction = NoFunction;
-    size_t getControlTypeFunction = NoFunction;
     size_t setSelectedDifficultyFunction = NoFunction;
     size_t lvlSetSelectedDifficultyFunction = NoFunction;
-    size_t setControlTypeFunction = NoFunction;
-    size_t setInvertLookFunction = NoFunction;
-    size_t setAutoAimFunction = NoFunction;
-    size_t setAimControlFunction = NoFunction;
-    size_t setSightFunction = NoFunction;
-    size_t setLookAheadFunction = NoFunction;
-    size_t setAmmoFunction = NoFunction;
-    size_t setScreenFunction = NoFunction;
-    size_t setRatioFunction = NoFunction;
     size_t lastFunction = NoFunction;
     u64 captureStartCycle = 0;
     u64 captureEndCycle = 0;
