@@ -1427,11 +1427,10 @@ struct CPU : Thread {
     size_t replayStageLoadFunction = NoFunction;
     size_t replayStopFunction = NoFunction;
     size_t masterDisplayListFunction = NoFunction;
-    size_t debugMenuDrawFunction = NoFunction;
+    size_t swapBuffersFunction = NoFunction;
     size_t softwareTlbLoadFunction = NoFunction;
     size_t bossMainloopFunction = NoFunction;
     size_t updateFrameCountersFunction = NoFunction;
-    size_t joyConsumeSamplesFunction = NoFunction;
     size_t setSelectedDifficultyFunction = NoFunction;
     size_t lvlSetSelectedDifficultyFunction = NoFunction;
     size_t lastFunction = NoFunction;

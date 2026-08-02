@@ -85,11 +85,10 @@ auto CPU::Profiler::power(bool) -> void {
   replayStageLoadFunction = NoFunction;
   replayStopFunction = NoFunction;
   masterDisplayListFunction = NoFunction;
-  debugMenuDrawFunction = NoFunction;
+  swapBuffersFunction = NoFunction;
   softwareTlbLoadFunction = NoFunction;
   bossMainloopFunction = NoFunction;
   updateFrameCountersFunction = NoFunction;
-  joyConsumeSamplesFunction = NoFunction;
   setSelectedDifficultyFunction = NoFunction;
   lvlSetSelectedDifficultyFunction = NoFunction;
 
@@ -120,11 +119,10 @@ auto CPU::Profiler::power(bool) -> void {
     if(functions[index].name == "practice_replay_on_stage_load") replayStageLoadFunction = index;
     if(functions[index].name == "practice_replay_stop_playback") replayStopFunction = index;
     if(functions[index].name == "dynGetMasterDisplayList") masterDisplayListFunction = index;
-    if(functions[index].name == "debmenuDraw") debugMenuDrawFunction = index;
+    if(functions[index].name == "dynSwapBuffers") swapBuffersFunction = index;
     if(functions[index].name == "tlbmanageTranslateLoadRomFromTlbAddress") softwareTlbLoadFunction = index;
     if(functions[index].name == "bossMainloop") bossMainloopFunction = index;
     if(functions[index].name == "updateFrameCounters") updateFrameCountersFunction = index;
-    if(functions[index].name == "joyConsumeSamplesWrapper") joyConsumeSamplesFunction = index;
     if(functions[index].name == "set_selected_difficulty") setSelectedDifficultyFunction = index;
     if(functions[index].name == "lvlSetSelectedDifficulty") lvlSetSelectedDifficultyFunction = index;
   }
@@ -152,9 +150,8 @@ auto CPU::Profiler::power(bool) -> void {
     mempPoolsAddress = objectAddress("g_mempPools");
     if(bossMainloopFunction == NoFunction ||
        masterDisplayListFunction == NoFunction ||
-       debugMenuDrawFunction == NoFunction ||
+       swapBuffersFunction == NoFunction ||
        updateFrameCountersFunction == NoFunction ||
-       joyConsumeSamplesFunction == NoFunction ||
        !stageNumAddress || !selectedDifficultyAddress ||
        !levelDifficultyAddress || !contDataAddress ||
        !randomSeedAddress || !chrObjRandomSeedAddress || !mempPoolsAddress) {
@@ -651,8 +648,7 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   }
 
   if(externalReplay && replayRunning && !replayFinished &&
-     currentFunction == joyConsumeSamplesFunction &&
-     instruction_ == 0x03e0'0008u) {
+     exactFunction == masterDisplayListFunction) {
     replayQueueInput();
   }
 
@@ -746,8 +742,8 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
     gameFrameHasDroppedFrame = false;
   }
   // The JIT can skip the caller's return PC, but it consistently exposes each
-  // callee's JR RA. These bracket the same work as the guest-side profiler:
-  // after dynGetMasterDisplayList through the end of debmenuDraw.
+  // callee's JR RA. Start after dynGetMasterDisplayList, then finish when the
+  // completed display list is handed over by dynSwapBuffers.
   if(replayActive && currentFunction == masterDisplayListFunction
       && instruction_ == 0x03e0'0008u) {
     gameFrameActive = true;
@@ -757,8 +753,8 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
     gameFrameDroppedFrameBucket = pendingDroppedFrameBucket;
     droppedFramePending = false;
   }
-  if(gameFrameActive && currentFunction == debugMenuDrawFunction
-      && instruction_ == 0x03e0'0008u && now >= gameFrameStartCycle) {
+  if(gameFrameActive && exactFunction == swapBuffersFunction
+      && now >= gameFrameStartCycle) {
     sampleMemoryPools();
     gameFrames.push_back({gameFrameStartCycle, now, gameFrameTlbLoads});
     if(gameFrameHasDroppedFrame) {

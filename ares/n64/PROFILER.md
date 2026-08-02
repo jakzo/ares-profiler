@@ -93,11 +93,13 @@ void bossMainloop(void);
 void lvlStageLoad(s32 stage);
 void lvlUnloadStageTextData(void);
 void updateFrameCounters(s32 deltaFrames);
-void joyConsumeSamplesWrapper(void);
+void dynSwapBuffers(void);
 
 Gfx *dynGetMasterDisplayList(void);
-Gfx *debmenuDraw(Gfx *gdl);
 ```
+
+Ares queues replay input at `dynGetMasterDisplayList` entry, starts game-frame
+profiling when it returns, and ends the frame at `dynSwapBuffers` entry.
 
 The controller guest layout used by replay is also ABI:
 
