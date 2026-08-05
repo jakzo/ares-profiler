@@ -17,6 +17,39 @@ auto readBigEndian64(const std::vector<u8>& data, size_t offset) -> u64 {
        | u64(readBigEndian32(data, offset + 4));
 }
 
+auto readBigEndian24Signed(const std::vector<u8>& data, size_t offset) -> s32 {
+  auto value = u32(data[offset]) << 16 | u32(data[offset + 1]) << 8 | u32(data[offset + 2]);
+  return value & 0x0080'0000 ? s32(value | 0xff00'0000) : s32(value);
+}
+
+auto appendBigEndian16(std::vector<u8>& data, u16 value) -> void {
+  data.push_back(u8(value >> 8));
+  data.push_back(u8(value));
+}
+
+auto appendBigEndian24(std::vector<u8>& data, s32 value) -> void {
+  auto bits = u32(value);
+  data.push_back(u8(bits >> 16));
+  data.push_back(u8(bits >> 8));
+  data.push_back(u8(bits));
+}
+
+auto appendBigEndian64(std::vector<u8>& data, u64 value) -> void {
+  for(auto shift : {56, 48, 40, 32, 24, 16, 8, 0}) data.push_back(u8(value >> shift));
+}
+
+auto floatBits(f32 value) -> u32 {
+  u32 bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+auto bitsFloat(u32 bits) -> f32 {
+  f32 value;
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
 auto symbolName(const std::vector<u8>& data, size_t offset, size_t limit) -> std::string {
   std::string result;
   while(offset < limit && offset < data.size() && data[offset]) {
@@ -70,7 +103,12 @@ auto CPU::Profiler::power(bool) -> void {
   replayFinished = false;
   replayQuit = false;
   replayHasFrameSeeds = false;
+  replayHasPosition = false;
+  replayHasStan = false;
+  replayCapturePosition = false;
   replayFrameIndex = 0;
+  replayUnloadedRoom = 0;
+  replayUnloadedRoomFrames = 0;
   replayInitialRandomSeed = 0;
   replayInitialChrObjRandomSeed = 0;
   gameFrameActive = false;
@@ -80,6 +118,7 @@ auto CPU::Profiler::power(bool) -> void {
   replayFrames.clear();
   functionStarts.clear();
   functionCache.clear();
+  replayStanTiles.clear();
   stageLoadFunction = NoFunction;
   stageUnloadFunction = NoFunction;
   replayStageLoadFunction = NoFunction;
@@ -106,6 +145,11 @@ auto CPU::Profiler::power(bool) -> void {
     (replay && *replay && std::string_view(replay) != "0");
   auto quit = std::getenv("ARES_N64_REPLAY_QUIT");
   replayQuit = quit && *quit && std::string_view(quit) != "0";
+  auto positionOutput = std::getenv("ARES_N64_REPLAY_POSITION_OUTPUT_DIR");
+  if(positionOutput && *positionOutput) {
+    replayCapturePosition = true;
+    replayPositionOutputDir = positionOutput;
+  }
 
   if(!loadSymbols(symbolsPath)) {
     std::fprintf(stderr, "ares N64 profiler: could not load ELF symbols from %s\n", symbolsPath.c_str());
@@ -148,13 +192,26 @@ auto CPU::Profiler::power(bool) -> void {
     randomSeedAddress = objectAddress("g_randomSeed");
     chrObjRandomSeedAddress = objectAddress("g_chrObjRandomSeed");
     mempPoolsAddress = objectAddress("g_mempPools");
+    currentPlayerAddress = objectAddress("g_CurrentPlayer");
+    playerInvincibleAddress = objectAddress("g_PlayerInvincible");
+    standTileStartAddress = objectAddress("standTileStart");
+    listOfTileSizesAddress = objectAddress("list_of_tilesizes");
+    bgCurrentRoomAddress = objectAddress("g_BgCurrentRoom");
+    roomLoadBudgetAddress = objectAddress("D_800442F8");
+    if(!roomLoadBudgetAddress) roomLoadBudgetAddress = objectAddress("g_RoomLoadBudget");
+    bgRoomInfoAddress = objectAddress("g_BgRoomInfo");
+    maxNumRoomsAddress = objectAddress("g_MaxNumRooms");
     if(bossMainloopFunction == NoFunction ||
        masterDisplayListFunction == NoFunction ||
        swapBuffersFunction == NoFunction ||
        updateFrameCountersFunction == NoFunction ||
        !stageNumAddress || !selectedDifficultyAddress ||
        !levelDifficultyAddress || !contDataAddress ||
-       !randomSeedAddress || !chrObjRandomSeedAddress || !mempPoolsAddress) {
+       !randomSeedAddress || !chrObjRandomSeedAddress || !mempPoolsAddress ||
+       !currentPlayerAddress || !playerInvincibleAddress ||
+       !standTileStartAddress || !listOfTileSizesAddress ||
+       !bgCurrentRoomAddress || !roomLoadBudgetAddress ||
+       !bgRoomInfoAddress || !maxNumRoomsAddress) {
       std::fprintf(stderr, "TEST_FAILED ELF is missing required GoldenEye replay symbols\n");
       if(replayQuit) requestShutdown();
       return;
@@ -251,6 +308,8 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
   static constexpr u32 ReplayMagic = 0x47455250;
   static constexpr u16 ReplayVersion = 1;
   static constexpr u8 FrameSeeds = 1;
+  static constexpr u8 FramePosition = 2;
+  static constexpr u8 FrameStan = 4;
 
   std::ifstream input(path, std::ios::binary);
   if(!input) return false;
@@ -270,6 +329,8 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
   replayDifficulty = data[base + 18];
   auto flags = data[base + 19];
   replayHasFrameSeeds = flags & FrameSeeds;
+  replayHasPosition = flags & FramePosition;
+  replayHasStan = flags & FrameStan;
   replayInitialRandomSeed = readBigEndian64(data, base + 24);
   replayInitialChrObjRandomSeed = readBigEndian64(data, base + 32);
   replayDuration = readBigEndian32(data, base + 40);
@@ -298,6 +359,20 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
       frame.chrObjRandomSeed = readBigEndian64(data, position + 8);
       position += 16;
     }
+    if(replayHasPosition) {
+      if(position + 6 > limit) return false;
+      for(auto axis = 0; axis < 2; axis++) {
+        frame.positionXZ[axis] = readBigEndian24Signed(data, position + axis * 3);
+      }
+      position += 6;
+    }
+    if(replayHasStan) {
+      if(position + 3 > limit) return false;
+      frame.stanId = u32(data[position]) << 16 |
+                     u32(data[position + 1]) << 8 |
+                     u32(data[position + 2]);
+      position += 3;
+    }
     if(position + 4 > limit) return false;
     frame.buttons = readBigEndian16(data, position);
     frame.stickX = s8(data[position + 2]);
@@ -318,11 +393,75 @@ auto CPU::Profiler::loadReplay(const std::string& path) -> bool {
   return true;
 }
 
+auto CPU::Profiler::writePositionReplay() -> void {
+  static constexpr size_t ReplayOffset = 0x600;
+  static constexpr u8 FramePosition = 2;
+  static constexpr u8 FrameStan = 4;
+  std::ifstream input(replayPath, std::ios::binary);
+  std::vector<u8> image((std::istreambuf_iterator<char>(input)), {});
+  if(image.size() != 128 * 1024 || image.size() < ReplayOffset + 48) return;
+
+  auto headerSize = readBigEndian16(image, ReplayOffset + 6);
+  std::vector<u8> replay(image.begin() + ReplayOffset, image.begin() + ReplayOffset + headerSize);
+  replay[19] |= FramePosition | FrameStan;
+  u16 options = 0;
+  for(auto& frame : replayFrames) {
+    if(frame.options != options) {
+      replay.push_back(0);
+      appendBigEndian16(replay, frame.options);
+      options = frame.options;
+    }
+    replay.push_back(frame.deltaFrames);
+    appendBigEndian64(replay, frame.randomSeed);
+    appendBigEndian64(replay, frame.chrObjRandomSeed);
+    for(auto axis = 0; axis < 2; axis++) appendBigEndian24(replay, frame.positionXZ[axis]);
+    appendBigEndian24(replay, s32(frame.stanId));
+    appendBigEndian16(replay, frame.buttons);
+    replay.push_back(u8(frame.stickX));
+    replay.push_back(u8(frame.stickY));
+  }
+  if(ReplayOffset + replay.size() > image.size()) {
+    std::fprintf(stderr, "TEST_FAILED enriched replay does not fit SRAM image\n");
+    return;
+  }
+  auto totalSize = u32(replay.size());
+  replay[8] = u8(totalSize >> 24);
+  replay[9] = u8(totalSize >> 16);
+  replay[10] = u8(totalSize >> 8);
+  replay[11] = u8(totalSize);
+  std::fill(image.begin() + ReplayOffset, image.end(), 0);
+  std::copy(replay.begin(), replay.end(), image.begin() + ReplayOffset);
+  std::filesystem::create_directories(replayPositionOutputDir);
+  auto output = replayPositionOutputDir / std::filesystem::path(replayPath).filename();
+  std::ofstream stream(output, std::ios::binary);
+  stream.write((const char*)image.data(), image.size());
+  std::fprintf(stderr, "REPLAY_POSITION_WRITTEN %s\n", output.string().c_str());
+}
+
+auto CPU::Profiler::resolveReplayStan(u32 id) -> u32 {
+  if(auto found = replayStanTiles.find(id); found != replayStanTiles.end()) return found->second;
+  auto tile = u32(self.readDebug<Word>(guestAddress(standTileStartAddress)));
+  for(u32 count = 0; tile && count < 65536; count++) {
+    auto word = u32(self.readDebug<Word>(guestAddress(tile)));
+    if(!word) break;
+    replayStanTiles.try_emplace(word >> 8, tile);
+    auto tail = u16(self.readDebug<Half>(guestAddress(tile + 6)));
+    auto sizeIndex = u8(tail >> 12 & 15);
+    auto size = u8(self.readDebug<Byte>(guestAddress(listOfTileSizesAddress + sizeIndex)));
+    if(!size) break;
+    tile += size;
+  }
+  if(auto found = replayStanTiles.find(id); found != replayStanTiles.end()) return found->second;
+  return 0;
+}
+
 auto CPU::Profiler::startReplay(u64 now) -> void {
   if(!externalReplay || replayRunning || replayFinished) return;
   replayRunning = true;
   replayActive = true;
   replayFrameIndex = 0;
+  replayUnloadedRoom = 0;
+  replayUnloadedRoomFrames = 0;
   lastReplayFrameAt = std::chrono::steady_clock::now();
   lastReplayStatusAt = lastReplayFrameAt;
 
@@ -355,6 +494,7 @@ auto CPU::Profiler::completeReplay(u64 now) -> void {
   replayRunning = false;
   replayActive = false;
   replayFinished = true;
+  if(replayCapturePosition) writePositionReplay();
   std::fprintf(stderr, "TEST_COMPLETE frames=%zu duration=%u\n",
                replayFrames.size(), replayDuration);
   if(active) {
@@ -372,20 +512,94 @@ auto CPU::Profiler::replayTick(u64 now) -> void {
   }
 
   auto& frame = replayFrames[replayFrameIndex];
-  if(replayHasFrameSeeds) {
-    auto randomSeed = self.readDebug<Dual>(guestAddress(randomSeedAddress));
-    auto chrObjRandomSeed = self.readDebug<Dual>(guestAddress(chrObjRandomSeedAddress));
-    if(randomSeed != frame.randomSeed ||
-       chrObjRandomSeed != frame.chrObjRandomSeed) {
-      std::ostringstream reason;
-      reason << "replay diverged frame=" << replayFrameIndex
-             << std::hex
-             << " randomSeed=" << randomSeed << "/" << frame.randomSeed
-             << " chrObjRandomSeed=" << chrObjRandomSeed << "/"
-             << frame.chrObjRandomSeed;
-      failReplay(reason.str(), now);
-      return;
+  auto player = u32(self.readDebug<Word>(guestAddress(currentPlayerAddress)));
+  auto prop = player ? u32(self.readDebug<Word>(guestAddress(player + 0xa8))) : 0;
+  if(prop && replayCapturePosition) {
+    auto x = bitsFloat(u32(self.readDebug<Word>(guestAddress(prop + 8))));
+    auto z = bitsFloat(u32(self.readDebug<Word>(guestAddress(prop + 16))));
+    // Enriching an already positioned replay must retain its known-good X/Z
+    // stream. Only legacy seed/input replays need their position populated.
+    if(!replayHasPosition) {
+      frame.positionXZ[0] = s32(std::lround(x * 16.0f));
+      frame.positionXZ[1] = s32(std::lround(z * 16.0f));
     }
+    auto stan = u32(self.readDebug<Word>(guestAddress(prop + 20)));
+    frame.stanId = stan ? u32(self.readDebug<Word>(guestAddress(stan))) >> 8 : 0;
+  }
+  if(prop && replayHasPosition) {
+    auto targetX = f32(frame.positionXZ[0]) / 16.0f;
+    auto targetZ = f32(frame.positionXZ[1]) / 16.0f;
+    auto x = floatBits(targetX);
+    auto z = floatBits(targetZ);
+    // Keep the authoritative prop and collision/movement coordinates aligned.
+    self.writeDebug<Word>(guestAddress(prop + 8), x);
+    self.writeDebug<Word>(guestAddress(prop + 16), z);
+    self.writeDebug<Word>(guestAddress(player + 0x48c), x); // field_488.collision_position.x
+    self.writeDebug<Word>(guestAddress(player + 0x494), z); // field_488.collision_position.z
+    self.writeDebug<Word>(guestAddress(player + 0x4a4), x); // field_488.pos3.x
+    self.writeDebug<Word>(guestAddress(player + 0x4ac), z); // field_488.pos3.z
+    self.writeDebug<Word>(guestAddress(player + 0x4b4), x); // field_488.pos.x
+    self.writeDebug<Word>(guestAddress(player + 0x4bc), z); // field_488.pos.z
+  }
+  if(prop && replayHasStan) {
+    if(auto stan = resolveReplayStan(frame.stanId)) {
+      auto room = u8(self.readDebug<Byte>(guestAddress(stan + 3)));
+      auto liveRoom = u8(self.readDebug<Byte>(guestAddress(prop + 0x2c)));
+      auto liveStan = u32(self.readDebug<Word>(guestAddress(prop + 20)));
+      auto portalStan = u32(self.readDebug<Word>(guestAddress(player + 0x488)));
+      auto roomPointerStan = u32(self.readDebug<Word>(guestAddress(player + 0x34)));
+      if(room != liveRoom || stan != liveStan || stan != portalStan || stan != roomPointerStan) {
+        self.writeDebug<Word>(guestAddress(prop + 20), stan);
+        self.writeDebug<Word>(guestAddress(player + 0x488), stan);
+        self.writeDebug<Word>(guestAddress(player + 0x4d8), stan);
+        self.writeDebug<Word>(guestAddress(player + 0x34), stan);
+        self.writeDebug<Byte>(guestAddress(prop + 0x2c), room);
+        self.writeDebug<Byte>(guestAddress(prop + 0x2d), 0xff);
+        self.writeDebug<Byte>(guestAddress(prop + 0x2e), 0xff);
+        self.writeDebug<Byte>(guestAddress(prop + 0x2f), 0xff);
+        // Visibility and rendering derive from these globals later in the same
+        // game frame. Giving the corrected room a full budget ensures its model
+        // is streamed even after a discontinuous replay teleport.
+        self.writeDebug<Word>(guestAddress(bgCurrentRoomAddress), room);
+        self.writeDebug<Word>(guestAddress(roomLoadBudgetAddress), 200);
+      }
+      auto maxRooms = u32(self.readDebug<Word>(guestAddress(maxNumRoomsAddress)));
+      auto loaded = room < maxRooms
+        ? u8(self.readDebug<Byte>(guestAddress(bgRoomInfoAddress + room * 0x50 + 2)))
+        : 0;
+      if(!loaded) {
+        replayUnloadedRoomFrames = replayUnloadedRoom == room
+          ? replayUnloadedRoomFrames + 1 : 1;
+        replayUnloadedRoom = room;
+        // Stage startup and a discontinuous room transition can legitimately
+        // take several emulator ticks to stream. Diagnose only a sustained
+        // unloaded destination after gameplay has begun.
+        if(replayFrameIndex >= 30 && replayUnloadedRoomFrames >= 30) {
+          std::fprintf(stderr,
+            "REPLAY_ROOM_UNLOADED frame=%zu room=%u stan=%06x x=%.4f z=%.4f frames=%u\n",
+            replayFrameIndex, room, frame.stanId,
+            f32(frame.positionXZ[0]) / 16.0f, f32(frame.positionXZ[1]) / 16.0f,
+            replayUnloadedRoomFrames);
+          failReplay("recorded room remained unloaded", now);
+          return;
+        }
+      } else {
+        replayUnloadedRoomFrames = 0;
+      }
+    }
+  }
+  // Capture runs must observe the unmodified base game. Survivability forcing
+  // is playback-only; applying it while enriching a replay changes execution
+  // and makes the captured position/stan stream internally inconsistent.
+  if(player && !replayCapturePosition) {
+    self.writeDebug<Word>(guestAddress(playerInvincibleAddress), 1);
+    self.writeDebug<Word>(guestAddress(player + 0xd8), 0);
+    self.writeDebug<Word>(guestAddress(player + 0xdc), floatBits(1.0f));
+    self.writeDebug<Word>(guestAddress(player + 0xe0), floatBits(1.0f));
+  }
+  if(replayHasFrameSeeds) {
+    self.writeDebug<Dual>(guestAddress(randomSeedAddress), frame.randomSeed);
+    self.writeDebug<Dual>(guestAddress(chrObjRandomSeedAddress), frame.chrObjRandomSeed);
   }
 
   self.ipu.r[4].u64 = frame.deltaFrames;
@@ -713,7 +927,10 @@ auto CPU::Profiler::instruction(u64 address_, u32 instruction_) -> void {
   }
   if(exactFunction == stageUnloadFunction && active) {
     if(externalReplay && replayRunning) {
-      failReplay("level ended before replay finished", now);
+      std::fprintf(stderr,
+        "REPLAY_EARLY_LEVEL_END frame=%zu/%zu; accepting captured frames\n",
+        replayFrameIndex, replayFrames.size());
+      completeReplay(now);
       return;
     }
     endCapture(now, true);

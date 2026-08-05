@@ -1306,6 +1306,8 @@ struct CPU : Thread {
     struct ReplayFrameData {
       u64 randomSeed = 0;
       u64 chrObjRandomSeed = 0;
+      s32 positionXZ[2] = {};
+      u32 stanId = 0;
       u16 buttons = 0;
       u16 options = 0;
       s8 stickX = 0;
@@ -1364,6 +1366,8 @@ struct CPU : Thread {
     auto functionStartingAt(u32 address) const -> size_t;
     auto objectAddress(const char* name) const -> u32;
     auto loadReplay(const std::string& path) -> bool;
+    auto writePositionReplay() -> void;
+    auto resolveReplayStan(u32 id) -> u32;
     auto startReplay(u64 now) -> void;
     auto replayTick(u64 now) -> void;
     auto replayQueueInput() -> void;
@@ -1400,6 +1404,9 @@ struct CPU : Thread {
     bool replayFinished = false;
     bool replayQuit = false;
     bool replayHasFrameSeeds = false;
+    bool replayHasPosition = false;
+    bool replayHasStan = false;
+    bool replayCapturePosition = false;
     bool droppedFramePending = false;
     bool gameFrameHasDroppedFrame = false;
     u32 pendingLevelStage = 0;
@@ -1417,6 +1424,16 @@ struct CPU : Thread {
     u32 randomSeedAddress = 0;
     u32 chrObjRandomSeedAddress = 0;
     u32 mempPoolsAddress = 0;
+    u32 currentPlayerAddress = 0;
+    u32 playerInvincibleAddress = 0;
+    u32 standTileStartAddress = 0;
+    u32 listOfTileSizesAddress = 0;
+    u32 bgCurrentRoomAddress = 0;
+    u32 roomLoadBudgetAddress = 0;
+    u32 bgRoomInfoAddress = 0;
+    u32 maxNumRoomsAddress = 0;
+    u32 replayUnloadedRoom = 0;
+    u32 replayUnloadedRoomFrames = 0;
     u8 replayStage = 0;
     u8 replayDifficulty = 0;
     u8 pendingDroppedFrameBucket = 0;
@@ -1456,6 +1473,7 @@ struct CPU : Thread {
     std::chrono::steady_clock::time_point lastReplayStatusAt;
     std::string symbolsPath;
     std::string replayPath;
+    std::filesystem::path replayPositionOutputDir;
     std::filesystem::path outputPrefix;
     std::string foldedKey;
     std::vector<Function> functions;
@@ -1463,6 +1481,7 @@ struct CPU : Thread {
     std::vector<ReplayFrameData> replayFrames;
     std::unordered_map<std::string, Object> objects;
     std::unordered_map<u32, size_t> functionStarts;
+    std::unordered_map<u32, u32> replayStanTiles;
     static constexpr size_t FunctionCacheSize = 1 << 16;
     struct FunctionCacheEntry {
       u32 address = 0;
